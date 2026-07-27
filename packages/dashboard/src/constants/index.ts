@@ -1,4 +1,11 @@
-import type { CompareOperator, ExtractKind, RunStatus, TaskSpec } from "@breckr/shared";
+import type {
+  CompareOperator,
+  ExtractKind,
+  RunStatus,
+  Schedule,
+  ScheduleFrequency,
+  TaskSpec,
+} from "@breckr/shared";
 
 /** Runs per page in the history table. */
 export const PAGE_SIZE = 25;
@@ -67,8 +74,44 @@ export const VALUELESS_OPERATORS: readonly CompareOperator[] = [
   "changed",
 ];
 
+// --- Schedule builder ------------------------------------------------------
+
 /** A sensible starting point for a new task: check quarter-hourly. */
-export const DEFAULT_CRON = "*/15 * * * *";
+export const DEFAULT_SCHEDULE: Schedule = { every: "minutes", interval: 15 };
+
+/**
+ * The frequencies the builder offers, in the order they appear.
+ *
+ * `custom` is last because it is the escape hatch: the server hands one back
+ * for any stored expression the other five cannot express, and editing such a
+ * task has to leave its cron alone.
+ */
+export const FREQUENCY_OPTIONS: readonly { value: ScheduleFrequency; label: string }[] =
+  [
+    { value: "minutes", label: "Every few minutes" },
+    { value: "hours", label: "Every few hours" },
+    { value: "day", label: "Every day" },
+    { value: "week", label: "Every week" },
+    { value: "month", label: "Every month" },
+    { value: "custom", label: "Custom cron" },
+  ];
+
+/** Indexed by cron's day numbering, Sunday first. */
+export const WEEKDAY_LABELS: readonly string[] = [
+  "Sun",
+  "Mon",
+  "Tue",
+  "Wed",
+  "Thu",
+  "Fri",
+  "Sat",
+];
+
+/** Upper bound per frequency, matching the server's own range checks. */
+export const MAX_INTERVAL: Record<"minutes" | "hours", number> = {
+  minutes: 59,
+  hours: 23,
+};
 
 export const DEFAULT_SPEC: TaskSpec = {
   url: "",

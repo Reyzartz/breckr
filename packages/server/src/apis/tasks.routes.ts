@@ -15,11 +15,12 @@ import { withPage } from "../services/browser.service.ts";
 import { testSpec } from "../services/executor.service.ts";
 import {
   SpecValidationError,
-  validateCron,
+  resolveCron,
   validateName,
   validateSpec,
   validateTaskInput,
 } from "../services/spec.service.ts";
+import { fromCron } from "../services/schedule.service.ts";
 import { config } from "../config/index.ts";
 import { errorMessage } from "../utils/json.ts";
 
@@ -41,6 +42,9 @@ export function registerTaskRoutes(app: FastifyInstance): void {
 
     const tasks: TaskWithStatus[] = taskRepo.listTasks().map((task) => ({
       ...task,
+      // Derived rather than stored, so a row whose expression was written by
+      // hand still opens in the form's builder — as `custom`.
+      schedule: fromCron(task.cron_expr),
       last_run: latestRuns.get(task.id) ?? null,
       next_run: registry.getNextRun(task.id),
       // A row can carry no usable spec — written by the old file-based registry,
@@ -77,6 +81,7 @@ export function registerTaskRoutes(app: FastifyInstance): void {
 
     const response: TaskWithStatus = {
       ...created,
+      schedule: fromCron(created.cron_expr),
       last_run: null,
       next_run: registry.getNextRun(created.id),
       orphaned: !scheduled,
@@ -98,7 +103,9 @@ export function registerTaskRoutes(app: FastifyInstance): void {
       const patch: taskRepo.UpdateTaskInput = {};
       try {
         if (body.name !== undefined) patch.name = validateName(body.name);
-        if (body.cron_expr !== undefined) patch.cron_expr = validateCron(body.cron_expr);
+        if (body.schedule !== undefined || body.cron_expr !== undefined) {
+          patch.cron_expr = resolveCron(body.schedule, body.cron_expr);
+        }
         if (body.spec !== undefined) patch.spec = validateSpec(body.spec);
       } catch (err) {
         return replyValidationError(reply, err);

@@ -93,6 +93,43 @@ export interface TaskResult {
   checkedAt: string;
 }
 
+// --- Schedules -------------------------------------------------------------
+
+/** Which shape a `Schedule` takes. `custom` is the raw-cron escape hatch. */
+export type ScheduleFrequency =
+  | "minutes"
+  | "hours"
+  | "day"
+  | "week"
+  | "month"
+  | "custom";
+
+/**
+ * A schedule as the dashboard builds it, before it becomes cron.
+ *
+ * Cron stays the storage format: the server converts a `Schedule` to
+ * `cron_expr` on the way in and derives one back from the stored expression on
+ * the way out, so nothing but the server ever handles a cron string.
+ *
+ * `custom` exists because that derivation has to be total. An expression the
+ * builder cannot express — a hand-written row, a range, the six-field form
+ * node-cron also accepts — comes back as `custom` and survives an edit
+ * untouched, rather than being silently rewritten into the nearest shape the
+ * builder does have a control for.
+ */
+export type Schedule =
+  /** `*​/N * * * *` */
+  | { every: "minutes"; interval: number }
+  /** `M *​/N * * *` */
+  | { every: "hours"; interval: number; minute: number }
+  /** `M H * * *` */
+  | { every: "day"; hour: number; minute: number }
+  /** `M H * * 1,5`, weekdays as cron's 0-6 with 0 = Sunday. */
+  | { every: "week"; weekdays: number[]; hour: number; minute: number }
+  /** `M H D * *`. Months without day `D` are skipped, as cron does. */
+  | { every: "month"; day: number; hour: number; minute: number }
+  | { every: "custom"; cron: string };
+
 /** A task as stored. */
 export interface Task {
   id: string;
@@ -117,6 +154,12 @@ export interface Task {
 
 /** A task decorated with scheduling and history for the dashboard. */
 export interface TaskWithStatus extends Task {
+  /**
+   * `cron_expr` in the shape the form's builder edits. Derived on read and
+   * never stored, so a row whose expression was written by hand still opens in
+   * the form — as `custom`, carrying the expression through unchanged.
+   */
+  schedule: Schedule;
   last_run: Run | null;
   /** ISO-8601 of the next scheduled fire, or null while disabled. */
   next_run: string | null;
@@ -203,8 +246,16 @@ export interface CreateTaskRequest {
   /** Stable identifier. Run history is keyed on it, so it cannot be changed. */
   id: string;
   name: string;
-  /** Standard 5-field cron, evaluated in the server's configured timezone. */
-  cron_expr: string;
+  /**
+   * The schedule to run on. Exactly one of `schedule` and `cron_expr` is
+   * required; `schedule` wins when both are sent. The dashboard sends this one.
+   */
+  schedule?: Schedule;
+  /**
+   * Standard 5-field cron, evaluated in the server's configured timezone.
+   * Kept for callers driving the API directly.
+   */
+  cron_expr?: string;
   spec: TaskSpec;
   /** Defaults to true. */
   enabled?: boolean;
@@ -214,6 +265,8 @@ export interface CreateTaskRequest {
 export interface UpdateTaskRequest {
   enabled?: boolean;
   name?: string;
+  /** Takes precedence over `cron_expr` when both are sent. */
+  schedule?: Schedule;
   cron_expr?: string;
   spec?: TaskSpec;
 }

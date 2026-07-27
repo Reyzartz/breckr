@@ -9,6 +9,8 @@ import {
   TASK_ID_PATTERN,
   VALUELESS_OPERATORS,
 } from "../constants/index.ts";
+import { fail } from "../utils/errors.ts";
+import { validateSchedule } from "./schedule.service.ts";
 
 /**
  * Validation for user-authored task specs.
@@ -22,21 +24,9 @@ import {
  * rejection table testable without either.
  */
 
-/** Distinguishes a bad request from a server fault at the route boundary. */
-export class SpecValidationError extends Error {
-  /** The offending field, so the dashboard can highlight it. */
-  readonly field: string;
-
-  constructor(field: string, message: string) {
-    super(message);
-    this.name = "SpecValidationError";
-    this.field = field;
-  }
-}
-
-function fail(field: string, message: string): never {
-  throw new SpecValidationError(field, message);
-}
+// Re-exported so callers keep importing the rejection type from the validator
+// that raises it; it lives in utils/ because schedule.service raises it too.
+export { SpecValidationError } from "../utils/errors.ts";
 
 function requireString(value: unknown, field: string, label: string): string {
   if (typeof value !== "string" || !value.trim()) {
@@ -207,6 +197,19 @@ export function validateCron(raw: unknown): string {
   return expr;
 }
 
+/**
+ * Resolve the cron a request means, from whichever field it used.
+ *
+ * The dashboard sends a structured `schedule`; a caller driving the API by hand
+ * can still send `cron_expr`. `schedule` wins so a client that sends both is
+ * not silently scheduled on the stale one.
+ */
+export function resolveCron(schedule: unknown, cronExpr: unknown): string {
+  if (schedule !== undefined && schedule !== null) return validateSchedule(schedule);
+  if (cronExpr !== undefined && cronExpr !== null) return validateCron(cronExpr);
+  fail("schedule", "A `schedule` or a `cron_expr` is required.");
+}
+
 /** The whole envelope, for POST /api/tasks. */
 export function validateTaskInput(candidate: unknown): ValidatedTaskInput {
   if (typeof candidate !== "object" || candidate === null) {
@@ -218,7 +221,7 @@ export function validateTaskInput(candidate: unknown): ValidatedTaskInput {
   return {
     id: validateTaskId(input["id"]),
     name: validateName(input["name"]),
-    cron_expr: validateCron(input["cron_expr"]),
+    cron_expr: resolveCron(input["schedule"], input["cron_expr"]),
     spec: validateSpec(input["spec"]),
   };
 }
