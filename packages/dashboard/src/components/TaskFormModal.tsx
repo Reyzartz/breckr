@@ -15,6 +15,7 @@ import { FlaskConical, Plus, SquarePen } from "lucide-react";
 import type {
   CompareOperator,
   ExtractKind,
+  Schedule,
   TaskSpec,
   TaskWithStatus,
   TestTaskResponse,
@@ -22,7 +23,7 @@ import type {
 import { testTask } from "../services/monitor.service.ts";
 import { ApiError, toErrorMessage } from "../apis/client.ts";
 import {
-  DEFAULT_CRON,
+  DEFAULT_SCHEDULE,
   DEFAULT_SPEC,
   EXTRACT_OPTIONS,
   OPERATORS_BY_KIND,
@@ -30,6 +31,7 @@ import {
   VALUELESS_OPERATORS,
 } from "../constants/index.ts";
 import { slugify } from "../utils/format.ts";
+import { ScheduleField, type ScheduleFields } from "./ScheduleField.tsx";
 
 interface TaskFormModalProps {
   isOpen: boolean;
@@ -39,19 +41,18 @@ interface TaskFormModalProps {
   onCreate: (input: {
     id: string;
     name: string;
-    cron_expr: string;
+    schedule: Schedule;
     spec: TaskSpec;
   }) => Promise<void>;
   onSave: (
     id: string,
-    patch: { name: string; cron_expr: string; spec: TaskSpec }
+    patch: { name: string; schedule: Schedule; spec: TaskSpec }
   ) => Promise<void>;
 }
 
-interface FormState {
+interface FormState extends ScheduleFields {
   id: string;
   name: string;
-  cron_expr: string;
   url: string;
   selector: string;
   waitForSelector: string;
@@ -62,13 +63,111 @@ interface FormState {
   message: string;
 }
 
+const pad = (value: number): string => String(value).padStart(2, "0");
+
+/**
+ * Spread a schedule across the flat fields the builder edits.
+ *
+ * Every field gets a value, not just the ones this frequency uses, so
+ * switching frequency never lands on a blank control.
+ */
+function toScheduleFields(schedule: Schedule): ScheduleFields {
+  const base: ScheduleFields = {
+    frequency: schedule.every,
+    interval: "15",
+    minuteOfHour: "0",
+    time: "09:00",
+    weekdays: [1],
+    monthDay: "1",
+    customCron: "",
+  };
+
+  switch (schedule.every) {
+    case "minutes":
+      return { ...base, interval: String(schedule.interval) };
+    case "hours":
+      return {
+        ...base,
+        interval: String(schedule.interval),
+        minuteOfHour: String(schedule.minute),
+      };
+    case "day":
+      return { ...base, time: `${pad(schedule.hour)}:${pad(schedule.minute)}` };
+    case "week":
+      return {
+        ...base,
+        time: `${pad(schedule.hour)}:${pad(schedule.minute)}`,
+        weekdays: schedule.weekdays,
+      };
+    case "month":
+      return {
+        ...base,
+        time: `${pad(schedule.hour)}:${pad(schedule.minute)}`,
+        monthDay: String(schedule.day),
+      };
+    case "custom":
+      return { ...base, customCron: schedule.cron };
+  }
+}
+
+/**
+ * Reassemble the schedule from those fields.
+ *
+ * Out-of-range numbers are passed through rather than clamped: the server
+ * range-checks them and names `schedule`, which is the same path a hand-driven
+ * API call takes, so there is one set of bounds rather than two.
+ */
+function toSchedule(form: FormState): Schedule {
+  const int = (raw: string): number => Number.parseInt(raw, 10);
+  const [hour = "", minute = ""] = form.time.split(":");
+
+  switch (form.frequency) {
+    case "minutes":
+      return { every: "minutes", interval: int(form.interval) };
+    case "hours":
+      return {
+        every: "hours",
+        interval: int(form.interval),
+        minute: int(form.minuteOfHour),
+      };
+    case "day":
+      return { every: "day", hour: int(hour), minute: int(minute) };
+    case "week":
+      return {
+        every: "week",
+        weekdays: form.weekdays,
+        hour: int(hour),
+        minute: int(minute),
+      };
+    case "month":
+      return {
+        every: "month",
+        day: int(form.monthDay),
+        hour: int(hour),
+        minute: int(minute),
+      };
+    case "custom":
+      return { every: "custom", cron: form.customCron.trim() };
+  }
+}
+
+/**
+ * The fields `bind` can drive.
+ *
+ * `weekdays` is an array and the builder owns it, so excluding it keeps `bind`
+ * from having to pretend an input's string value is one.
+ */
+type TextFieldKey = {
+  [K in keyof FormState]: FormState[K] extends string ? K : never;
+}[keyof FormState];
+
 function toFormState(task: TaskWithStatus | null): FormState {
   const spec = task?.spec ?? DEFAULT_SPEC;
 
   return {
     id: task?.id ?? "",
     name: task?.name ?? "",
-    cron_expr: task?.cron_expr ?? DEFAULT_CRON,
+    ...toScheduleFields(task?.schedule ?? DEFAULT_SCHEDULE),
     url: spec.url,
     selector: spec.selector,
     waitForSelector: spec.waitForSelector ?? "",
@@ -174,7 +273,7 @@ export function TaskFormModal({
    * inline arrow infers `any` and fails under noImplicitAny. Binding it once
    * here beats repeating the annotation on every control.
    */
-  const bind = <K extends keyof FormState>(key: K) => ({
+  const bind = <K extends TextFieldKey>(key: K) => ({
     value: form[key],
     error: errorFor(key),
     onChange: (
@@ -185,6 +284,12 @@ export function TaskFormModal({
       set(key, event.target.value as FormState[K]);
     },
   });
+
+  /** The builder owns several fields at once — switching frequency can clamp. */
+  const handleScheduleChange = (patch: Partial<ScheduleFields>) => {
+    setForm((current) => ({ ...current, ...patch }));
+    setFieldError((current) => (current?.field === "schedule" ? null : current));
+  };
 
   const handleNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const name = event.target.value;
@@ -246,7 +351,7 @@ export function TaskFormModal({
 
     const payload = {
       name: form.name.trim(),
-      cron_expr: form.cron_expr.trim(),
+      schedule: toSchedule(form),
       spec: toSpec(form),
     };
 
@@ -308,11 +413,10 @@ export function TaskFormModal({
             />
           </div>
 
-          <Input
-            label="Schedule (cron)"
-            {...bind("cron_expr")}
-            info="Standard 5-field cron, in the server's timezone."
-            fullWidth
+          <ScheduleField
+            value={form}
+            onChange={handleScheduleChange}
+            error={errorFor("schedule")}
           />
 
           <Input

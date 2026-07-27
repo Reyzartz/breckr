@@ -2,6 +2,7 @@ import type {
   CompareOperator,
   ExtractKind,
   RunStatus,
+  ScheduleFrequency,
   TriggerSource,
 } from "@breckr/shared";
 
@@ -30,6 +31,16 @@ export const MAX_RUN_LIMIT = 200;
 /** Retention sweep: daily at 04:00 in the configured timezone. */
 export const RETENTION_CRON = "0 4 * * *";
 export const RETENTION_JOB_NAME = "_retention";
+
+/** The schedule shapes the dashboard's builder can send. */
+export const SCHEDULE_FREQUENCIES: readonly ScheduleFrequency[] = [
+  "minutes",
+  "hours",
+  "day",
+  "week",
+  "month",
+  "custom",
+];
 
 // --- Telegram --------------------------------------------------------------
 

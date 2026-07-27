@@ -197,7 +197,7 @@ at boot rather than at the first tick.
 | `GET /api/health` | liveness + whether the browser is reachable |
 | `GET /api/tasks` | tasks with last run and next run time |
 | `POST /api/tasks` | create; schedules it immediately |
-| `PATCH /api/tasks/:id` | any of `{ enabled, name, cron_expr, spec }` |
+| `PATCH /api/tasks/:id` | any of `{ enabled, name, schedule \| cron_expr, spec }` |
 | `DELETE /api/tasks/:id` | delete; run history cascades with it |
 | `POST /api/tasks/test` | run a draft spec once — no run row, no notification |
 | `GET /api/runs` | `task_id`, `status`, `limit` (max 200), `offset` |
@@ -206,6 +206,12 @@ at boot rather than at the first tick.
 
 A spec that fails validation comes back `400 { error, field }`, where `field`
 names the control that was wrong.
+
+Creating or updating a task takes either a structured `schedule` — what the
+dashboard's builder sends, converted to cron by the server — or a raw
+`cron_expr`. `schedule` wins when both are present. Tasks are read back with a
+`schedule` derived from the stored expression; anything the builder cannot
+express comes back as `{ every: "custom", cron }` and is left alone by an edit.
 
 ## Testing
 

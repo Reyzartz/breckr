@@ -1,3 +1,6 @@
+import type { Schedule } from "@breckr/shared";
+import { WEEKDAY_LABELS } from "../constants/index.ts";
+
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
   ["year", 365 * 24 * 60 * 60 * 1000],
   ["day", 24 * 60 * 60 * 1000],
@@ -99,4 +102,37 @@ export function slugify(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+const pad = (value: number): string => String(value).padStart(2, "0");
+
+/**
+ * A schedule in words, for the task list.
+ *
+ * Formats the structured schedule the server derived — no cron is parsed here,
+ * so the card and the form's builder cannot disagree about what a task does.
+ * A `custom` schedule has no words to give, so it yields its raw expression;
+ * callers render that one as code.
+ */
+export function describeSchedule(schedule: Schedule): string {
+  switch (schedule.every) {
+    case "minutes":
+      return schedule.interval === 1
+        ? "Every minute"
+        : `Every ${schedule.interval} minutes`;
+    case "hours":
+      return schedule.interval === 1
+        ? `Hourly at :${pad(schedule.minute)}`
+        : `Every ${schedule.interval} hours at :${pad(schedule.minute)}`;
+    case "day":
+      return `Daily at ${pad(schedule.hour)}:${pad(schedule.minute)}`;
+    case "week": {
+      const days = schedule.weekdays.map((day) => WEEKDAY_LABELS[day] ?? day).join(", ");
+      return `${days} at ${pad(schedule.hour)}:${pad(schedule.minute)}`;
+    }
+    case "month":
+      return `Monthly on day ${schedule.day} at ${pad(schedule.hour)}:${pad(schedule.minute)}`;
+    case "custom":
+      return schedule.cron;
+  }
 }

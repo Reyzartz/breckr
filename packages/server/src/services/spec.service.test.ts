@@ -151,6 +151,26 @@ test("accepts a complete task input", () => {
   assert.equal(input.spec.selector, ".price");
 });
 
+test("converts the dashboard's schedule into the stored cron", () => {
+  const { cron_expr: schedule } = validateTaskInput({
+    ...validInput,
+    cron_expr: undefined,
+    schedule: { every: "day", hour: 9, minute: 0 },
+  });
+
+  assert.equal(schedule, "0 9 * * *");
+});
+
+test("a schedule wins over a cron_expr sent alongside it", () => {
+  // A client that sends both must not be scheduled on the stale one.
+  const { cron_expr: schedule } = validateTaskInput({
+    ...validInput,
+    schedule: { every: "day", hour: 9, minute: 0 },
+  });
+
+  assert.equal(schedule, "0 9 * * *");
+});
+
 const envelopeRejections: [name: string, input: unknown, field: string, expected: RegExp][] =
   [
     ["not an object", "nope", "body", /must be an object/],
@@ -167,6 +187,18 @@ const envelopeRejections: [name: string, input: unknown, field: string, expected
       { ...validInput, cron_expr: "not a cron" },
       "cron_expr",
       /is not a valid cron expression/,
+    ],
+    [
+      "invalid schedule",
+      { ...validInput, cron_expr: undefined, schedule: { every: "day", hour: 24 } },
+      "schedule",
+      /`hour` must be a whole number between 0 and 23/,
+    ],
+    [
+      "no schedule at all",
+      { ...validInput, cron_expr: undefined },
+      "schedule",
+      /A `schedule` or a `cron_expr` is required/,
     ],
   ];
 

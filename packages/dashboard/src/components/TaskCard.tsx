@@ -21,7 +21,13 @@ import {
 } from "lucide-react";
 import type { TaskWithStatus } from "@breckr/shared";
 import { StatusBadge } from "./StatusBadge.tsx";
-import { absoluteTime, firstLine, hostname, timeAgo } from "../utils/format.ts";
+import {
+  absoluteTime,
+  describeSchedule,
+  firstLine,
+  hostname,
+  timeAgo,
+} from "../utils/format.ts";
 
 interface TaskCardProps {
   task: TaskWithStatus;
@@ -180,7 +186,13 @@ export function TaskCard({
           <code>{task.id}</code>
         </Text>
         <Text variant="caption" color="muted">
-          <code>{task.cron_expr}</code>
+          {/* A custom schedule has only its expression to show, so it keeps the
+              monospace the other five no longer need. */}
+          {task.schedule.every === "custom" ? (
+            <code>{task.cron_expr}</code>
+          ) : (
+            describeSchedule(task.schedule)
+          )}
         </Text>
         {task.spec && (
           <Text variant="caption" color="muted">
