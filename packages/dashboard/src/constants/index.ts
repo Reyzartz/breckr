@@ -1,0 +1,85 @@
+import type { CompareOperator, ExtractKind, RunStatus, TaskSpec } from "@breckr/shared";
+
+/** Runs per page in the history table. */
+export const PAGE_SIZE = 25;
+
+/**
+ * Runtime values live here, not in @breckr/shared, which is types-only.
+ * Typing them against the shared contract keeps the two in step.
+ */
+export const RUN_STATUSES: readonly RunStatus[] = ["success", "failed", "running"];
+
+/** brake-ui Badge variants, keyed by run status. */
+export const STATUS_BADGE_VARIANT: Record<RunStatus, "success" | "error" | "info"> = {
+  success: "success",
+  failed: "error",
+  running: "info",
+};
+
+// --- Task form -------------------------------------------------------------
+
+/**
+ * The extraction kinds, labelled for the form.
+ *
+ * The server holds the same list in its own `constants/`; both are typed
+ * against `ExtractKind`, so adding a kind to the shared contract breaks
+ * whichever side has not been updated.
+ */
+export const EXTRACT_OPTIONS: readonly { value: ExtractKind; label: string }[] = [
+  { value: "text", label: "Text of the element" },
+  { value: "number", label: "Number in the text" },
+  { value: "attribute", label: "An attribute" },
+  { value: "count", label: "How many match" },
+  { value: "exists", label: "Whether it exists" },
+];
+
+export const OPERATOR_LABELS: Record<CompareOperator, string> = {
+  lt: "is less than",
+  lte: "is at most",
+  gt: "is greater than",
+  gte: "is at least",
+  eq: "equals",
+  neq: "does not equal",
+  contains: "contains",
+  not_contains: "does not contain",
+  is_true: "is present",
+  is_false: "is missing",
+  changed: "changed since the last run",
+};
+
+/**
+ * Which operators the form offers per kind. Mirrors OPERATORS_BY_KIND on the
+ * server, which is the authority — this only keeps the user from picking a
+ * pairing that would be rejected on save.
+ */
+export const OPERATORS_BY_KIND: Record<ExtractKind, readonly CompareOperator[]> = {
+  text: ["eq", "neq", "contains", "not_contains", "changed"],
+  number: ["lt", "lte", "gt", "gte", "eq", "neq", "changed"],
+  attribute: ["eq", "neq", "contains", "not_contains", "changed"],
+  count: ["lt", "lte", "gt", "gte", "eq", "neq", "changed"],
+  exists: ["is_true", "is_false", "changed"],
+};
+
+/** Operators that test the value alone, so the form hides the value input. */
+export const VALUELESS_OPERATORS: readonly CompareOperator[] = [
+  "is_true",
+  "is_false",
+  "changed",
+];
+
+/** A sensible starting point for a new task: check quarter-hourly. */
+export const DEFAULT_CRON = "*/15 * * * *";
+
+export const DEFAULT_SPEC: TaskSpec = {
+  url: "",
+  selector: "",
+  extract: "text",
+  operator: "changed",
+};
+
+export const THEMES = ["light", "dark"] as const;
+export type Theme = (typeof THEMES)[number];
+
+/** brake-ui switches theme off this attribute on any ancestor. */
+export const THEME_ATTRIBUTE = "data-theme";
+export const THEME_STORAGE_KEY = "breckr-theme";

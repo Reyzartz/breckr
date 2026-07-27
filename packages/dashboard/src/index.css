@@ -1,0 +1,20 @@
+/*
+ * theme.css pulls in Tailwind itself plus every brake-ui design token, and
+ * carries an @source directive so Tailwind also scans the library's bundled
+ * components (it skips node_modules during automatic detection otherwise).
+ */
+@import "brake-ui/theme.css";
+
+/* Tailwind resolves @source relative to this file — this covers our own JSX. */
+@source "./**/*.{js,jsx}";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-text);
+}

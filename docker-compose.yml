@@ -1,0 +1,77 @@
+# The whole thing: the app (built from ./Dockerfile) plus the browser it
+# drives over CDP. `docker compose up -d --build` is the entire deployment.
+#
+# SECURITY: an open CDP port is remote code execution -- anyone who can reach it
+# can drive a browser, read local files through it and pivot into this host.
+# Every port below is published to 127.0.0.1 only, and must stay that way.
+# Do not "fix" a connection problem by widening these to 0.0.0.0.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: web-task-monitor
+    restart: unless-stopped
+    depends_on:
+      - lightpanda
+    env_file:
+      - .env
+    environment:
+      # Overrides for the two values in .env that mean something different (or
+      # nothing) inside a container: Fastify must bind every interface to be
+      # reachable through Docker's port mapping, and the browser is reached by
+      # its Compose service name, not host loopback.
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      # Set DOCKER_BROWSER_WS_ENDPOINT in .env to point at the chrome service
+      # instead (http://chrome:9222) without touching this file.
+      BROWSER_WS_ENDPOINT: ${DOCKER_BROWSER_WS_ENDPOINT:-ws://lightpanda:9222}
+    volumes:
+      # SQLite must survive `docker compose down` / image rebuilds -- same
+      # data/ directory the host already gitignores.
+      - ./data:/app/data
+    ports:
+      - "127.0.0.1:${PORT:-3000}:${PORT:-3000}"
+    healthcheck:
+      # There is no curl in the slim image, and adding one just for this would
+      # be silly -- node's global fetch does the job. Written as concatenation
+      # rather than a template literal so Compose doesn't try to interpolate
+      # ${...} out of the JavaScript.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  # Default engine: tiny and fast, but Beta with partial Web API coverage and
+  # no rendering at all (so no screenshots or PDF).
+  lightpanda:
+    image: lightpanda/browser:nightly
+    container_name: lightpanda
+    restart: unless-stopped
+    # --host 0.0.0.0 binds inside the container. Binding 127.0.0.1 here would
+    # bind the *container's* loopback and make the port unreachable from the
+    # host even though the mapping below looks correct.
+    #
+    # The entrypoint is `tini --`, which execs argv[0] literally rather than
+    # through a shell -- it must be the binary path, not just its subcommand.
+    command: ["/usr/bin/lightpanda", "serve", "--host", "0.0.0.0", "--port", "9222"]
+    ports:
+      - "127.0.0.1:9222:9222"
+
+  # Fallback for sites Lightpanda can't render. Opt in explicitly:
+  #   docker compose --profile chrome up -d
+  # Local dev (`npm run dev` on the host): point BROWSER_WS_ENDPOINT in .env at
+  # http://127.0.0.1:9223 (http, not ws -- Chrome's socket URL carries a
+  # per-launch UUID that puppeteer resolves). Containerized app: set
+  # DOCKER_BROWSER_WS_ENDPOINT=http://chrome:9222 in .env instead.
+  chrome:
+    image: chromedp/headless-shell:latest
+    container_name: chrome-headless
+    restart: unless-stopped
+    profiles: ["chrome"]
+    # Chrome crashes on the default 64MB /dev/shm under real page loads.
+    shm_size: 1gb
+    ports:
+      - "127.0.0.1:9223:9222"
