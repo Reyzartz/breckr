@@ -9,6 +9,7 @@ import {
 } from "brake-ui";
 import type { Run } from "../types/index.ts";
 import { StatusBadge } from "./StatusBadge.tsx";
+import { NotificationBadge } from "./NotificationBadge.tsx";
 import { absoluteTime, duration, prettyJson } from "../utils/format.ts";
 
 interface RunDetailProps {
@@ -27,7 +28,7 @@ export function RunDetail({ run, onClose }: RunDetailProps) {
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={run.status} />
           {run.condition_met && <Badge variant="info">condition met</Badge>}
-          {run.notified && <Badge variant="warning">notified</Badge>}
+          <NotificationBadge run={run} />
           <Badge variant="default">{run.trigger_source}</Badge>
         </div>
 
@@ -54,6 +55,26 @@ export function RunDetail({ run, onClose }: RunDetailProps) {
             <pre className="max-h-72 overflow-auto rounded-md bg-error-bg p-3 font-mono text-xs whitespace-pre-wrap text-error-text">
               {run.error}
             </pre>
+          </Section>
+        )}
+
+        {/*
+          Only shown when an alert was actually owed. The message body is the
+          answer to "was it sent" — you read what went out rather than inferring
+          it from a badge.
+        */}
+        {run.notification_status && (
+          <Section title="Notification">
+            {run.notification_detail && (
+              <pre className="mb-2 max-h-40 overflow-auto rounded-md bg-error-bg p-3 font-mono text-xs whitespace-pre-wrap text-error-text">
+                {run.notification_detail}
+              </pre>
+            )}
+            {run.notification_message && (
+              <pre className="max-h-40 overflow-auto rounded-md bg-background-secondary p-3 font-mono text-xs whitespace-pre-wrap text-text">
+                {run.notification_message}
+              </pre>
+            )}
           </Section>
         )}
       </ModalBody>

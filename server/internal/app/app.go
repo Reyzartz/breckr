@@ -22,15 +22,16 @@ import (
 )
 
 type Application struct {
-	Logger            *log.Logger
-	Database          *sql.DB
-	Registry          *scheduler.Registry
-	Runner            *runner.Runner
-	RunStore          store.RunStore
-	HealthHandler     *api.HealthHandler
-	TaskHandler       *api.TaskHandler
-	RunHandler        *api.RunHandler
-	LoggingMiddleware *middleware.LoggingMiddleware
+	Logger              *log.Logger
+	Database            *sql.DB
+	Registry            *scheduler.Registry
+	Runner              *runner.Runner
+	RunStore            store.RunStore
+	HealthHandler       *api.HealthHandler
+	TaskHandler         *api.TaskHandler
+	RunHandler          *api.RunHandler
+	NotificationHandler *api.NotificationHandler
+	LoggingMiddleware   *middleware.LoggingMiddleware
 
 	cfg *config.Config
 }
@@ -72,9 +73,12 @@ func NewApplication(cfg *config.Config) (*Application, error) {
 			logger, taskStore, runStore, registry, taskRunner,
 			browserPool, cfg.Browser.DefaultTimeout,
 		),
-		RunHandler:        api.NewRunHandler(logger, runStore),
-		LoggingMiddleware: middleware.NewLoggingMiddleware(logger),
-		cfg:               cfg,
+		RunHandler: api.NewRunHandler(logger, runStore),
+		// The same notifier instance the runner holds, so a test send exercises
+		// the delivery path a real alert takes rather than a parallel one.
+		NotificationHandler: api.NewNotificationHandler(logger, telegram, cfg),
+		LoggingMiddleware:   middleware.NewLoggingMiddleware(logger),
+		cfg:                 cfg,
 	}, nil
 }
 

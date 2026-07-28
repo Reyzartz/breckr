@@ -341,3 +341,121 @@ func TestRunRowsExposeRealBooleans(t *testing.T) {
 		t.Fatalf("SQLite 0/1 should convert at the store boundary: %+v", row)
 	}
 }
+
+/*
+The delivery outcome has to survive on the run row, because stdout is not an
+answer to "did my alert go out?" a week later.
+
+`notified` alone cannot carry it: a rejected send and a run that owed no alert
+both leave it false, and those are opposite situations -- one is a fault to fix,
+the other is normal operation.
+*/
+
+// row fetches the run these tests just wrote.
+func (h *harness) row(t *testing.T, outcome types.RunOutcome) *types.Run {
+	t.Helper()
+
+	row, err := h.runs.GetRun(outcome.RunID)
+	if err != nil || row == nil {
+		t.Fatalf("GetRun = %+v, %v", row, err)
+	}
+	return row
+}
+
+func TestADeliveredAlertRecordsWhatWasSent(t *testing.T) {
+	h := newHarness(t, types.NotificationOutcome{Delivered: true, Reason: types.NotificationSent})
+	value := 5.0
+	definition := h.task(t, &value)
+
+	row := h.row(t, h.run(t, definition))
+
+	if row.NotificationStatus == nil || *row.NotificationStatus != types.NotificationSent {
+		t.Fatalf("status = %v, want sent", row.NotificationStatus)
+	}
+	if row.NotificationDetail != nil {
+		t.Fatalf("detail = %v, want nil on a delivered alert", *row.NotificationDetail)
+	}
+	// The body is the actual evidence: it is what the chat should contain.
+	if row.NotificationMessage == nil || *row.NotificationMessage != "value=x" {
+		t.Fatalf("message = %v, want the rendered body", row.NotificationMessage)
+	}
+}
+
+func TestARejectedAlertRecordsWhyItFailed(t *testing.T) {
+	h := newHarness(t, types.NotificationOutcome{
+		Delivered: false,
+		Reason:    types.NotificationError,
+		Detail:    "Telegram rejected the notification (400): chat not found",
+	})
+	value := 5.0
+	definition := h.task(t, &value)
+
+	row := h.row(t, h.run(t, definition))
+
+	if row.NotificationStatus == nil || *row.NotificationStatus != types.NotificationError {
+		t.Fatalf("status = %v, want error", row.NotificationStatus)
+	}
+	if row.NotificationDetail == nil || !strings.Contains(*row.NotificationDetail, "chat not found") {
+		t.Fatalf("detail = %v, want the transport's own reason", row.NotificationDetail)
+	}
+	// The body is kept even though nothing arrived -- it is what the retry owes.
+	if row.NotificationMessage == nil {
+		t.Fatal("the undelivered body must still be recorded")
+	}
+	if row.Notified {
+		t.Fatal("a rejected alert did not notify")
+	}
+}
+
+func TestADisabledNotifierIsRecordedAsDisabledNotAsFailure(t *testing.T) {
+	h := newHarness(t, types.NotificationOutcome{
+		Delivered: false,
+		Reason:    types.NotificationDisabled,
+		Detail:    "Telegram is not configured",
+	})
+	value := 5.0
+	definition := h.task(t, &value)
+
+	row := h.row(t, h.run(t, definition))
+
+	// Distinct from "error" on purpose: nothing is owed and nothing will retry,
+	// so this is the state of the install rather than a fault.
+	if row.NotificationStatus == nil || *row.NotificationStatus != types.NotificationDisabled {
+		t.Fatalf("status = %v, want disabled", row.NotificationStatus)
+	}
+}
+
+func TestARunThatOwedNoAlertRecordsNoStatus(t *testing.T) {
+	h := newHarness(t, types.NotificationOutcome{Delivered: true, Reason: types.NotificationSent})
+	value := 500.0
+	definition := h.task(t, &value)
+
+	// 500 fails the `< 100` condition, so no alert is due at all.
+	row := h.row(t, h.run(t, definition))
+
+	if row.NotificationStatus != nil {
+		t.Fatalf("status = %v, want nil -- no alert was owed", *row.NotificationStatus)
+	}
+	if row.NotificationMessage != nil {
+		t.Fatalf("message = %v, want nil -- nothing was composed", *row.NotificationMessage)
+	}
+}
+
+func TestAHeldConditionOwesNoAlertOnTheSecondRun(t *testing.T) {
+	h := newHarness(t, types.NotificationOutcome{Delivered: true, Reason: types.NotificationSent})
+	value := 50.0
+	definition := h.task(t, &value)
+
+	first := h.row(t, h.run(t, definition))
+	value = 40
+	second := h.row(t, h.run(t, definition))
+
+	if first.NotificationStatus == nil {
+		t.Fatal("the transition alerts")
+	}
+	// The condition still holds, so dedup suppressed the alert. That is not a
+	// delivery failure and must not read as one.
+	if second.NotificationStatus != nil {
+		t.Fatalf("status = %v, want nil while the condition holds", *second.NotificationStatus)
+	}
+}

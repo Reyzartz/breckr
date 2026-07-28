@@ -35,7 +35,13 @@ func (hh *HealthHandler) HandleHealthCheck(w http.ResponseWriter, r *http.Reques
 			OK: true,
 			// The browser being down is reported, not fatal: the dashboard
 			// keeps working and the run history stays readable.
-			Browser:  hh.browser.CheckReachable(types.BrowserProbeTimeout),
+			Browser: hh.browser.CheckReachable(types.BrowserProbeTimeout),
+			// Reported from config rather than probed: a real probe would send
+			// a message to the user's chat on every health poll.
+			Notifications: types.NotifierHealth{
+				Configured: hh.cfg.Telegram.Enabled,
+				Transport:  types.NotifierTransport,
+			},
 			Tasks:    len(hh.registry.ListIDs()),
 			Timezone: hh.cfg.Runtime.Timezone,
 		},

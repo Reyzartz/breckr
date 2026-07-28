@@ -7,6 +7,7 @@ import type {
   TaskWithStatus,
 } from "../types/index.ts";
 import { StatusBadge } from "./StatusBadge.tsx";
+import { NotificationBadge } from "./NotificationBadge.tsx";
 import { PAGE_SIZE, RUN_STATUSES } from "../constants/index.ts";
 import type { RunFilters } from "../hooks/useRunFilters.ts";
 import {
@@ -154,12 +155,17 @@ export function RunHistory({
                   <td className="px-3 whitespace-nowrap">
                     <div className="flex items-center gap-1.5">
                       <StatusBadge status={run.status} />
-                      {run.notified && (
-                        <Badge variant="warning">notified</Badge>
-                      )}
-                      {run.condition_met && !run.notified && (
-                        <Badge variant="info">met</Badge>
-                      )}
+                      <NotificationBadge run={run} />
+                      {/*
+                        Only when no alert was owed at all -- otherwise the
+                        notification badge already says what happened, and a
+                        failed delivery would read as a plain "met".
+                      */}
+                      {run.condition_met &&
+                        !run.notified &&
+                        !run.notification_status && (
+                          <Badge variant="info">met</Badge>
+                        )}
                     </div>
                   </td>
                   <td className="max-w-md px-3">

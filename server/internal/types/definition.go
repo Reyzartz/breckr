@@ -66,4 +66,11 @@ const (
 type NotificationOutcome struct {
 	Delivered bool
 	Reason    NotificationReason
+	// Detail is why delivery did not happen, in the same words the failure is
+	// logged in. Empty when delivered.
+	//
+	// The reason alone says which branch the state machine takes; this says what
+	// to fix. It is recorded on the run row so a failure is answerable after the
+	// fact rather than only in whatever stdout the process had at the time.
+	Detail string
 }

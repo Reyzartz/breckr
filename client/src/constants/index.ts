@@ -1,6 +1,7 @@
 import type {
   CompareOperator,
   ExtractKind,
+  NotificationReason,
   RunStatus,
   Schedule,
   ScheduleFrequency,
@@ -23,6 +24,29 @@ export const STATUS_BADGE_VARIANT: Record<RunStatus, "success" | "error" | "info
   success: "success",
   failed: "error",
   running: "info",
+};
+
+/**
+ * brake-ui Badge variants, keyed by notification outcome.
+ *
+ * `error` is red and `disabled` is neutral on purpose: an alert the transport
+ * rejected is a fault to fix, while an alert nothing was configured to send is
+ * just the state of the install.
+ */
+export const NOTIFICATION_BADGE_VARIANT: Record<
+  NotificationReason,
+  "success" | "error" | "default"
+> = {
+  sent: "success",
+  disabled: "default",
+  error: "error",
+};
+
+/** How each outcome reads in the UI. */
+export const NOTIFICATION_LABEL: Record<NotificationReason, string> = {
+  sent: "notified",
+  disabled: "not configured",
+  error: "notify failed",
 };
 
 // --- Task form -------------------------------------------------------------

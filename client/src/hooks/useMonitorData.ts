@@ -4,6 +4,7 @@ import type {
   HealthResponse,
   RunsResponse,
   TaskWithStatus,
+  TestNotificationResponse,
   UpdateTaskRequest,
 } from "../types/index.ts";
 import {
@@ -13,6 +14,7 @@ import {
   updateTaskEnabled,
   deleteTask,
   runTaskNow,
+  sendTestNotification,
 } from "../services/monitor.service.ts";
 import { toErrorMessage } from "../apis/client.ts";
 import { config } from "../config/index.ts";
@@ -26,9 +28,21 @@ export interface UseMonitorData {
   error: string | null;
   loading: boolean;
   busyTaskId: string | null;
+  /** In-flight flag for the test notification. */
+  testingNotification: boolean;
+  /** Outcome of the last test send; null until one has been attempted. */
+  notificationTest: TestNotificationResponse | null;
   refresh: () => Promise<void>;
   toggleTask: (id: string, enabled: boolean) => Promise<void>;
   runNow: (id: string) => Promise<void>;
+  /**
+   * Send one real notification to prove the transport works.
+   *
+   * Never sets the page-level error: a rejected delivery is the answer, not a
+   * fault in the dashboard, and it belongs beside the button that asked.
+   */
+  testNotification: () => Promise<void>;
+  dismissNotificationTest: () => void;
   /**
    * Save a new or edited task.
    *
@@ -52,6 +66,9 @@ export function useMonitorData(filters: RunFilters): UseMonitorData {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
+  const [testingNotification, setTestingNotification] = useState(false);
+  const [notificationTest, setNotificationTest] =
+    useState<TestNotificationResponse | null>(null);
 
   // The polling interval reads the current filters without being torn down and
   // rebuilt every time they change.
@@ -119,6 +136,31 @@ export function useMonitorData(filters: RunFilters): UseMonitorData {
     [refresh]
   );
 
+  const testNotification = useCallback(async () => {
+    setTestingNotification(true);
+    setNotificationTest(null);
+    try {
+      setNotificationTest(await sendTestNotification());
+    } catch (err) {
+      // The server reports a rejected delivery in the response body, so landing
+      // here means the request itself never got an answer. Shaped like an
+      // outcome so it renders in the same place as one.
+      setNotificationTest({
+        ok: false,
+        status: "error",
+        detail: toErrorMessage(err),
+        message: "",
+        attemptedAt: new Date().toISOString(),
+      });
+    } finally {
+      setTestingNotification(false);
+    }
+  }, []);
+
+  const dismissNotificationTest = useCallback(() => {
+    setNotificationTest(null);
+  }, []);
+
   const addTask = useCallback(
     async (input: CreateTaskRequest) => {
       await createTask(input);
@@ -157,9 +199,13 @@ export function useMonitorData(filters: RunFilters): UseMonitorData {
     error,
     loading,
     busyTaskId,
+    testingNotification,
+    notificationTest,
     refresh,
     toggleTask,
     runNow,
+    testNotification,
+    dismissNotificationTest,
     addTask,
     saveTask,
     removeTask,

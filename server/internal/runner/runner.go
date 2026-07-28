@@ -122,14 +122,20 @@ func (r *Runner) RunTask(
 
 	notified := false
 
+	// Hoisted so the run row can record what was sent and what came back. The
+	// zero value means no alert was owed, which is stored as NULL rather than
+	// being flattened into "not notified".
+	var outcome types.NotificationOutcome
+	notifyMessage := ""
+
 	switch {
 	case conditionMet && !wasMet:
-		message := fmt.Sprintf("Task %q matched its condition.", definition.Name)
+		notifyMessage = fmt.Sprintf("Task %q matched its condition.", definition.Name)
 		if definition.Notify != nil {
-			message = definition.Notify(result)
+			notifyMessage = definition.Notify(result)
 		}
 
-		outcome := r.notifier.Send(ctx, message)
+		outcome = r.notifier.Send(ctx, notifyMessage)
 		notified = outcome.Delivered
 
 		switch {
@@ -149,16 +155,19 @@ func (r *Runner) RunTask(
 	}
 
 	r.complete(store.CompleteRunInput{
-		ID:           runID,
-		Status:       types.RunStatusSuccess,
-		ConditionMet: conditionMet,
-		Notified:     notified,
-		HasResult:    true,
-		Result:       result,
+		ID:                  runID,
+		Status:              types.RunStatusSuccess,
+		ConditionMet:        conditionMet,
+		Notified:            notified,
+		HasResult:           true,
+		Result:              result,
+		NotificationStatus:  outcome.Reason,
+		NotificationDetail:  outcome.Detail,
+		NotificationMessage: notifyMessage,
 	})
 
-	r.logger.Printf("INFO: task run complete (task=%s run=%d conditionMet=%t notified=%t trigger=%s)",
-		definition.ID, runID, conditionMet, notified, triggerSource)
+	r.logger.Printf("INFO: task run complete (task=%s run=%d conditionMet=%t notified=%t notify=%s trigger=%s)",
+		definition.ID, runID, conditionMet, notified, notifyReason(outcome.Reason), triggerSource)
 
 	return types.RunOutcome{
 		RunID:        runID,
@@ -166,6 +175,15 @@ func (r *Runner) RunTask(
 		ConditionMet: conditionMet,
 		Notified:     notified,
 	}
+}
+
+// notifyReason labels the log line, so an empty reason reads as "no alert was
+// due" rather than as a blank field.
+func notifyReason(reason types.NotificationReason) string {
+	if reason == "" {
+		return "none"
+	}
+	return string(reason)
 }
 
 func (r *Runner) complete(input store.CompleteRunInput) {

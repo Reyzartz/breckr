@@ -28,6 +28,14 @@ type CompleteRunInput struct {
 	HasResult bool
 	Result    any
 	Error     string
+	// NotificationStatus is why an alert did or did not go out. Empty when none
+	// was owed, which stores NULL -- "no alert was due" is not the same fact as
+	// "an alert was due and went out".
+	NotificationStatus types.NotificationReason
+	// NotificationDetail is the failure reason. Empty when delivered.
+	NotificationDetail string
+	// NotificationMessage is the body handed to the notifier.
+	NotificationMessage string
 }
 
 type ListRunsOptions struct {
@@ -57,20 +65,24 @@ func NewSQLiteRunStore(db *sql.DB) *SQLiteRunStore {
 }
 
 const runColumns = `runs.id, runs.task_id, runs.started_at, runs.finished_at, runs.status,
-	runs.condition_met, runs.notified, runs.trigger_source, runs.result_summary, runs.error`
+	runs.condition_met, runs.notified, runs.trigger_source, runs.result_summary, runs.error,
+	runs.notification_status, runs.notification_detail, runs.notification_message`
 
 // scanRun converts a row, normalizing SQLite's 0/1 booleans at the boundary --
 // which is what lets types.Run honestly declare `ConditionMet bool` instead of
 // making every consumer remember to coerce.
 func scanRun(row interface{ Scan(...any) error }, withTaskName bool) (*types.Run, error) {
 	var (
-		run           types.Run
-		finishedAt    sql.NullString
-		conditionMet  int
-		notified      int
-		resultSummary sql.NullString
-		runError      sql.NullString
-		taskName      sql.NullString
+		run                 types.Run
+		finishedAt          sql.NullString
+		conditionMet        int
+		notified            int
+		resultSummary       sql.NullString
+		runError            sql.NullString
+		notificationStatus  sql.NullString
+		notificationDetail  sql.NullString
+		notificationMessage sql.NullString
+		taskName            sql.NullString
 	)
 
 	targets := []any{
@@ -84,6 +96,9 @@ func scanRun(row interface{ Scan(...any) error }, withTaskName bool) (*types.Run
 		&run.TriggerSource,
 		&resultSummary,
 		&runError,
+		&notificationStatus,
+		&notificationDetail,
+		&notificationMessage,
 	}
 	if withTaskName {
 		targets = append(targets, &taskName)
@@ -98,9 +113,24 @@ func scanRun(row interface{ Scan(...any) error }, withTaskName bool) (*types.Run
 	run.Notified = notified != 0
 	run.ResultSummary = nullString(resultSummary)
 	run.Error = nullString(runError)
+	run.NotificationStatus = notificationReason(notificationStatus)
+	run.NotificationDetail = nullString(notificationDetail)
+	run.NotificationMessage = nullString(notificationMessage)
 	run.TaskName = nullString(taskName)
 
 	return &run, nil
+}
+
+// notificationReason keeps NULL distinct from a reason. A run written before
+// this column existed, and a run that owed no alert, both read as nil rather
+// than as the empty reason -- which is what lets the dashboard say "no alert
+// was due" instead of showing an empty badge.
+func notificationReason(value sql.NullString) *types.NotificationReason {
+	if !value.Valid || value.String == "" {
+		return nil
+	}
+	reason := types.NotificationReason(value.String)
+	return &reason
 }
 
 // SweepInterruptedRuns resolves runs left dangling by a crash.
@@ -160,11 +190,6 @@ func (s *SQLiteRunStore) CompleteRun(input CompleteRunInput) error {
 		resultSummary = utils.SafeMarshal(input.Result)
 	}
 
-	var runError any
-	if input.Error != "" {
-		runError = input.Error
-	}
-
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE runs SET
 		    finished_at = ?,
@@ -172,17 +197,32 @@ func (s *SQLiteRunStore) CompleteRun(input CompleteRunInput) error {
 		    condition_met = ?,
 		    notified = ?,
 		    result_summary = ?,
-		    error = ?
+		    error = ?,
+		    notification_status = ?,
+		    notification_detail = ?,
+		    notification_message = ?
 		WHERE id = ?`,
 		now(),
 		string(input.Status),
 		fromBool(input.ConditionMet),
 		fromBool(input.Notified),
 		resultSummary,
-		runError,
+		emptyAsNull(input.Error),
+		emptyAsNull(string(input.NotificationStatus)),
+		emptyAsNull(input.NotificationDetail),
+		emptyAsNull(input.NotificationMessage),
 		input.ID,
 	)
 	return err
+}
+
+// emptyAsNull stores "" as SQL NULL, so "absent" and "present but empty" stay
+// distinguishable on read.
+func emptyAsNull(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
 
 // GetRun returns nil, nil when the run does not exist.

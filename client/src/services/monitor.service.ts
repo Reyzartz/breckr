@@ -10,6 +10,7 @@ import {
 } from "../apis/tasks.api.ts";
 import { fetchRuns, type FetchRunsOptions } from "../apis/runs.api.ts";
 import { fetchHealth } from "../apis/health.api.ts";
+import { sendTestNotification } from "../apis/notifications.api.ts";
 
 export interface MonitorSnapshot {
   tasks: TaskWithStatus[];
@@ -44,4 +45,5 @@ export {
   deleteTask,
   testTask,
   runTaskNow,
+  sendTestNotification,
 };

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Alert, Button, Divider, Text } from "brake-ui";
-import { Moon, Plus, RefreshCw, Sun } from "lucide-react";
+import { Bell, Moon, Plus, RefreshCw, Sun } from "lucide-react";
 import type { Run, TaskWithStatus } from "./types/index.ts";
 import { TaskList } from "./components/TaskList.tsx";
 import { TaskFormModal } from "./components/TaskFormModal.tsx";
@@ -20,9 +20,13 @@ export default function App() {
     error,
     loading,
     busyTaskId,
+    testingNotification,
+    notificationTest,
     refresh,
     toggleTask,
     runNow,
+    testNotification,
+    dismissNotificationTest,
     addTask,
     saveTask,
     removeTask,
@@ -51,6 +55,15 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            icon={Bell}
+            disabled={testingNotification}
+            onClick={() => void testNotification()}
+          >
+            {testingNotification ? "Sending…" : "Test notification"}
+          </Button>
           <Button
             size="sm"
             variant="ghost"
@@ -90,6 +103,43 @@ export default function App() {
                 Browser not reachable at <code>{health.browser.endpoint}</code>{" "}
                 — tasks that need a page will fail. Start it with{" "}
                 <code>docker compose up -d</code>. Browserless tasks still run.
+              </Alert>
+            </div>
+          )}
+
+          {/*
+            A monitor that quietly never alerts is the failure this app exists
+            to avoid, so say so up front rather than at the moment an alert was
+            owed and did not arrive.
+          */}
+          {health && !health.notifications.configured && (
+            <div className="mb-4">
+              <Alert variant="warning">
+                Notifications are not configured — conditions will still be
+                checked and recorded, but no alert will be sent. Set{" "}
+                <code>TELEGRAM_BOT_TOKEN</code> and <code>TELEGRAM_CHAT_ID</code>
+                .
+              </Alert>
+            </div>
+          )}
+
+          {notificationTest && (
+            <div className="mb-4">
+              <Alert variant={notificationTest.ok ? "success" : "error"}>
+                <span className="flex flex-wrap items-baseline gap-x-2">
+                  <span>
+                    {notificationTest.ok
+                      ? "Test notification delivered — check your chat."
+                      : `Test notification not delivered (${notificationTest.status}). ${notificationTest.detail ?? ""}`}
+                  </span>
+                  <button
+                    type="button"
+                    className="cursor-pointer underline underline-offset-2"
+                    onClick={dismissNotificationTest}
+                  >
+                    Dismiss
+                  </button>
+                </span>
               </Alert>
             </div>
           )}

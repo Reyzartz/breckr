@@ -44,6 +44,16 @@ const (
 	TelegramTruncationSuffix = "\n… (truncated)"
 )
 
+// --- Notifications ----------------------------------------------------------
+
+// TestNotificationMessage is the body POST /api/notifications/test sends. It
+// says what it is, because it lands in a real chat alongside real alerts.
+const TestNotificationMessage = "Test notification from Web Task Monitor. If you can read this, alerts are working."
+
+// NotifierTransport names the delivery channel in /api/health. Telegram is the
+// only one, but the dashboard should not have that hardcoded.
+const NotifierTransport = "telegram"
+
 // --- Browser ----------------------------------------------------------------
 
 // BrowserProbeTimeout bounds the /api/health liveness probe, shorter than a
