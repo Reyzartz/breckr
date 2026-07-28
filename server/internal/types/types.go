@@ -42,6 +42,14 @@ type Run struct {
 	ResultSummary *string `json:"result_summary"`
 	// Message and stack when the run failed.
 	Error *string `json:"error"`
+	// Why an alert did or did not go out, or null when none was owed because the
+	// condition did not transition. Notified says whether one arrived; this says
+	// why it did not, which a bool cannot.
+	NotificationStatus *NotificationReason `json:"notification_status"`
+	// The failure reason when NotificationStatus is "error" or "disabled".
+	NotificationDetail *string `json:"notification_detail"`
+	// The alert body handed to the notifier, so what was sent is inspectable.
+	NotificationMessage *string `json:"notification_message"`
 	// Joined from tasks; null if the task row has since been removed.
 	TaskName *string `json:"task_name"`
 }
@@ -207,11 +215,38 @@ type BrowserHealth struct {
 	Error string `json:"error,omitempty"`
 }
 
+// NotifierHealth reports whether alerts can be delivered at all, so the
+// dashboard can warn about a silent monitor before anyone waits on an alert
+// that was never going to arrive.
+type NotifierHealth struct {
+	Configured bool   `json:"configured"`
+	Transport  string `json:"transport"`
+}
+
 type HealthResponse struct {
-	OK       bool          `json:"ok"`
-	Browser  BrowserHealth `json:"browser"`
-	Tasks    int           `json:"tasks"`
-	Timezone string        `json:"timezone"`
+	OK      bool          `json:"ok"`
+	Browser BrowserHealth `json:"browser"`
+	// Notifications being unconfigured is reported, not fatal: runs still
+	// happen and still record their outcome, they just cannot alert.
+	Notifications NotifierHealth `json:"notifications"`
+	Tasks         int            `json:"tasks"`
+	Timezone      string         `json:"timezone"`
+}
+
+// TestNotificationResponse is the outcome of POST /api/notifications/test: one
+// real delivery attempt, on demand.
+//
+// Always returned with 200. A rejection by the transport is a successful report
+// of a failed delivery, not an HTTP error -- same as TestTaskResponse.
+type TestNotificationResponse struct {
+	OK     bool               `json:"ok"`
+	Status NotificationReason `json:"status"`
+	// Why it did not arrive. Present when not delivered.
+	Detail string `json:"detail,omitempty"`
+	// Echoed so the dashboard can show exactly what was sent.
+	Message string `json:"message"`
+	// ISO-8601 of the attempt.
+	AttemptedAt string `json:"attemptedAt"`
 }
 
 type UpdateTaskResponse struct {

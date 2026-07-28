@@ -42,6 +42,8 @@ func RegisterRoutes(application *app.Application, cfg *config.Config) *chi.Mux {
 
 		r.Get("/runs", application.RunHandler.HandleGetAllRuns)
 		r.Get("/runs/{id}", application.RunHandler.HandleGetRun)
+
+		r.Post("/notifications/test", application.NotificationHandler.HandleTestNotification)
 	})
 
 	registerDashboard(r, application, cfg)

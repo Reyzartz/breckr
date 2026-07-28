@@ -24,13 +24,17 @@ type Telegram struct {
 	cfg    config.TelegramConfig
 	logger *log.Logger
 	client *http.Client
+	// baseURL is the API root. Only tests change it, to point at an httptest
+	// server -- a real send must never be able to go anywhere else.
+	baseURL string
 }
 
 func NewTelegram(cfg config.TelegramConfig, logger *log.Logger) *Telegram {
 	return &Telegram{
-		cfg:    cfg,
-		logger: logger,
-		client: &http.Client{Timeout: types.TelegramTimeout},
+		cfg:     cfg,
+		logger:  logger,
+		client:  &http.Client{Timeout: types.TelegramTimeout},
+		baseURL: types.TelegramAPIBase,
 	}
 }
 
@@ -58,15 +62,22 @@ func truncate(text string) string {
 //	"disabled" -- no token configured, so there is nothing to retry and nothing
 //	              owed. The caller advances state as if sent, which keeps dedup
 //	              behaving identically with and without Telegram set up.
+//
+// Every non-delivery also carries a Detail: the same words as the log line, so
+// the reason survives on the run row instead of only in stdout.
 func (t *Telegram) Send(ctx context.Context, message string) types.NotificationOutcome {
 	text := truncate(message)
 
 	if !t.cfg.Enabled {
 		t.logger.Printf("WARN: Telegram not configured -- notification logged instead of sent: %s", text)
-		return types.NotificationOutcome{Delivered: false, Reason: types.NotificationDisabled}
+		return types.NotificationOutcome{
+			Delivered: false,
+			Reason:    types.NotificationDisabled,
+			Detail:    "Telegram is not configured -- the alert was logged, not sent. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.",
+		}
 	}
 
-	endpoint := fmt.Sprintf("%s/bot%s/sendMessage", types.TelegramAPIBase, t.cfg.Token)
+	endpoint := fmt.Sprintf("%s/bot%s/sendMessage", t.baseURL, t.cfg.Token)
 
 	body, err := json.Marshal(map[string]any{
 		"chat_id":                  t.cfg.ChatID,
@@ -74,8 +85,7 @@ func (t *Telegram) Send(ctx context.Context, message string) types.NotificationO
 		"disable_web_page_preview": true,
 	})
 	if err != nil {
-		t.logger.Printf("ERROR: could not encode the Telegram payload: %v", err)
-		return types.NotificationOutcome{Delivered: false, Reason: types.NotificationError}
+		return t.fail("could not encode the Telegram payload: %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, types.TelegramTimeout)
@@ -83,26 +93,35 @@ func (t *Telegram) Send(ctx context.Context, message string) types.NotificationO
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		t.logger.Printf("ERROR: could not build the Telegram request: %v", err)
-		return types.NotificationOutcome{Delivered: false, Reason: types.NotificationError}
+		return t.fail("could not build the Telegram request: %v", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
 
 	response, err := t.client.Do(request)
 	if err != nil {
-		t.logger.Printf("ERROR: failed to reach Telegram -- notification will be retried on the next run: %v", err)
-		return types.NotificationOutcome{Delivered: false, Reason: types.NotificationError}
+		return t.fail("failed to reach Telegram -- notification will be retried on the next run: %v", err)
 	}
 	defer response.Body.Close()
 
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		// Telegram puts the useful reason in the body, not the status text.
 		detail, _ := io.ReadAll(io.LimitReader(response.Body, 500))
-		t.logger.Printf("ERROR: Telegram rejected the notification (%d): %s", response.StatusCode, detail)
-		return types.NotificationOutcome{Delivered: false, Reason: types.NotificationError}
+		return t.fail("Telegram rejected the notification (%d): %s", response.StatusCode, detail)
 	}
 
 	return types.NotificationOutcome{Delivered: true, Reason: types.NotificationSent}
+}
+
+// fail logs the reason and returns it on the outcome, so the two can never
+// drift apart -- a failure the dashboard shows is the failure the log recorded.
+func (t *Telegram) fail(format string, args ...any) types.NotificationOutcome {
+	detail := fmt.Sprintf(format, args...)
+	t.logger.Printf("ERROR: %s", detail)
+	return types.NotificationOutcome{
+		Delivered: false,
+		Reason:    types.NotificationError,
+		Detail:    detail,
+	}
 }
 
 // Ensure the concrete type keeps satisfying the interface the runner holds.

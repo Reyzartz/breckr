@@ -5,6 +5,15 @@ export type RunStatus = "running" | "success" | "failed";
 export type TriggerSource = "cron" | "manual";
 
 /**
+ * Why an alert did or did not go out.
+ *
+ * `disabled` and `error` are both "nothing arrived", but they are different
+ * problems: `disabled` means no transport is configured, `error` means one is
+ * and it rejected the message. Only `error` will be retried on the next run.
+ */
+export type NotificationReason = "sent" | "disabled" | "error";
+
+/**
  * One execution of a task.
  *
  * `condition_met` and `notified` are real booleans: SQLite stores them as 0/1
@@ -28,6 +37,16 @@ export interface Run {
   result_summary: string | null;
   /** Message and stack when the run failed. */
   error: string | null;
+  /**
+   * Why an alert did or did not go out, or null when none was owed because the
+   * condition did not transition on this run. `notified` says whether one
+   * arrived; this says why it did not, which a bool cannot.
+   */
+  notification_status: NotificationReason | null;
+  /** The failure reason when `notification_status` is "error" or "disabled". */
+  notification_detail: string | null;
+  /** The alert body handed to the notifier, so what was sent is inspectable. */
+  notification_message: string | null;
   /** Joined from tasks; null if the task row has since been removed. */
   task_name?: string | null;
 }
@@ -189,8 +208,34 @@ export interface HealthResponse {
     /** Present when not reachable. */
     error?: string;
   };
+  /**
+   * Whether alerts can be delivered at all. Reported from config rather than
+   * probed — a real probe would message the user's chat on every health poll.
+   */
+  notifications: {
+    configured: boolean;
+    transport: string;
+  };
   tasks: number;
   timezone: string;
+}
+
+/**
+ * Outcome of POST /api/notifications/test: one real delivery attempt, on
+ * demand.
+ *
+ * Always returned with 200 — a rejection by the transport is a successful
+ * report of a failed delivery, not an HTTP error.
+ */
+export interface TestNotificationResponse {
+  ok: boolean;
+  status: NotificationReason;
+  /** Why it did not arrive. Present when not delivered. */
+  detail?: string;
+  /** Echoed so the dashboard can show exactly what was sent. */
+  message: string;
+  /** ISO-8601 of the attempt. */
+  attemptedAt: string;
 }
 
 export interface UpdateTaskResponse {
