@@ -5,3 +5,6 @@ dist/
 *.log
 .DS_Store
 .pm2/
+
+# Go build output
+server/breckr-server

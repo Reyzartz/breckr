@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+
+    // Relative imports are written with their real ".ts"/".tsx" extension.
+    // Vite resolves them either way; keeping the extension means the sources
+    // read as they did under the old workspace layout, and tsc accepts them
+    // instead of demanding the ".js" nodenext spelling.
+    "allowImportingTsExtensions": true,
+
+    // Vite compiles; tsc only ever typechecks here.
+    "noEmit": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+
+    // Imports mean exactly what they say -- a type-only import is erased, a
+    // value import is emitted. src/types is a types-only mirror of the Go
+    // server's contract, so an accidental value import from it fails at build.
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+
+    // vite/client declares the CSS module shape, without which importing
+    // "brake-ui/theme.css" is a type error.
+    "types": ["vite/client"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]
+}

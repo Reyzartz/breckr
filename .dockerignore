@@ -7,3 +7,4 @@ data
 .claude
 .DS_Store
 *.log
+server/breckr-server

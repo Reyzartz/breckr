@@ -2,15 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "dashboard",
+      "name": "client",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:dashboard"],
+      "runtimeArgs": ["--prefix", "client", "run", "dev"],
       "port": 5173
     },
     {
       "name": "server",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeExecutable": "go",
+      "runtimeArgs": ["run", "./main.go"],
+      "cwd": "server",
       "port": 3000
     }
   ]

@@ -18,12 +18,14 @@ services:
     env_file:
       - .env
     environment:
-      # Overrides for the two values in .env that mean something different (or
-      # nothing) inside a container: Fastify must bind every interface to be
-      # reachable through Docker's port mapping, and the browser is reached by
-      # its Compose service name, not host loopback.
-      NODE_ENV: production
+      # Overrides for the values in .env that mean something different (or
+      # nothing) inside a container: the server must bind every interface to be
+      # reachable through Docker's port mapping, the browser is reached by its
+      # Compose service name rather than host loopback, and the dashboard build
+      # sits where the image put it.
       HOST: 0.0.0.0
+      DB_PATH: /app/data/monitor.db
+      CLIENT_DIST: /app/client/dist
       # Set DOCKER_BROWSER_WS_ENDPOINT in .env to point at the chrome service
       # instead (http://chrome:9222) without touching this file.
       BROWSER_WS_ENDPOINT: ${DOCKER_BROWSER_WS_ENDPOINT:-ws://lightpanda:9222}
@@ -34,11 +36,9 @@ services:
     ports:
       - "127.0.0.1:${PORT:-3000}:${PORT:-3000}"
     healthcheck:
-      # There is no curl in the slim image, and adding one just for this would
-      # be silly -- node's global fetch does the job. Written as concatenation
-      # rather than a template literal so Compose doesn't try to interpolate
-      # ${...} out of the JavaScript.
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/api/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      # busybox wget is already in the image, so nothing needs installing for
+      # this. --spider makes it a HEAD-like probe that discards the body.
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:${PORT:-3000}/api/health || exit 1"]
       interval: 30s
       timeout: 5s
       start_period: 10s
@@ -62,9 +62,9 @@ services:
 
   # Fallback for sites Lightpanda can't render. Opt in explicitly:
   #   docker compose --profile chrome up -d
-  # Local dev (`npm run dev` on the host): point BROWSER_WS_ENDPOINT in .env at
+  # Local dev (`make start-server` on the host): point BROWSER_WS_ENDPOINT in .env at
   # http://127.0.0.1:9223 (http, not ws -- Chrome's socket URL carries a
-  # per-launch UUID that puppeteer resolves). Containerized app: set
+  # per-launch UUID the server resolves via /json/version). Containerized app: set
   # DOCKER_BROWSER_WS_ENDPOINT=http://chrome:9222 in .env instead.
   chrome:
     image: chromedp/headless-shell:latest
