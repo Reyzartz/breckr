@@ -1,6 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  // Task definitions compile alongside the rest into dist/tasks/, which is
-  // where the registry loads them from at runtime. Tests are not shipped.
-  "exclude": ["src/**/*.test.ts", "src/**/__tests__/**"]
-}

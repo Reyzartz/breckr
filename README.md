@@ -8,8 +8,8 @@ Tasks are created from the dashboard — no code, no rebuild.
 
 ## How it works
 
-One process. Fastify owns the cron registry, so "Run now" in the dashboard is a
-direct function call rather than a hop to a separate scheduler.
+One process. The Go server owns the cron registry, so "Run now" in the dashboard
+is a direct function call rather than a hop to a separate scheduler.
 
 ```
 cron tick ──┐
@@ -24,34 +24,50 @@ it at run time. Nothing you type is ever evaluated as code, which is what makes
 it safe to author tasks from a dashboard that has no authentication in front
 of it.
 
-TypeScript throughout, in three workspaces:
+Go backend, TypeScript dashboard:
 
-| Package | |
+| | |
 |---|---|
-| `packages/server` | Scheduler + API. Layered: `apis` → `services` → `repositories`. See its [README](packages/server/src/README.md). |
-| `packages/dashboard` | React + Vite on `brake-ui`. Layered: `components` → `hooks` → `services` → `apis`. |
-| `packages/shared` | The HTTP contract. **Types only** — see [Shared types](#shared-types). |
+| `server/` | Go. Scheduler + API + the browser driver. `main.go` → `internal/{app,routes,api,…}`. |
+| `client/` | React + Vite on `brake-ui`. Layered: `components` → `hooks` → `services` → `apis`. |
+
+Inside `server/internal`:
+
+| | |
+|---|---|
+| `api`, `routes`, `middleware` | HTTP: chi router, handlers, request logging |
+| `app` | wiring and the boot/shutdown sequence |
+| `store`, `migrations` | SQLite via `database/sql`, schema through goose |
+| `executor` | spec validation, the schedule ⇄ cron mapping, extraction and the operator table |
+| `scheduler` | the live cron registry |
+| `runner` | the edge-trigger state machine |
+| `browser` | the CDP connection and the one mutex every run passes through |
+| `notifier` | Telegram |
+| `types` | the HTTP contract, mirrored by `client/src/types` |
 
 ## Setup
 
-```bash
-npm install && cp .env.example .env
-```
-
-Start a browser (see [Browsers](#browsers)), then:
+Needs Go 1.25+ and Node 20+.
 
 ```bash
-npm run dev
+cp .env.example .env && cd client && npm install
 ```
 
-The API is on `:3000`. For dashboard development, run Vite separately — it
+Start a browser (see [Browsers](#browsers)), then the server:
+
+```bash
+make start-server
+```
+
+The API is on `:3000`. For dashboard development run Vite separately — it
 proxies `/api` through:
 
 ```bash
-npm run dev:dashboard
+make start-client
 ```
 
-Other scripts: `npm run build` (both packages), `npm run typecheck`, `npm test`.
+`make start` runs both. Other targets: `make build`, `make typecheck`,
+`make test`, `make docker-up`.
 
 ## Tasks
 
@@ -117,8 +133,8 @@ lock you out of the only UI that can clean it up.
 
 Both speak CDP, so switching is one line in `.env` — no code changes.
 
-For local development (`npm run dev` on the host) start only the browser, not
-the app container:
+For local development (`make start-server` on the host) start only the browser,
+not the app container:
 
 | | Lightpanda (default) | Chrome (fallback) |
 |---|---|---|
@@ -129,7 +145,8 @@ the app container:
 | Web API coverage | partial (Beta) | complete |
 
 Chrome takes an `http://` address because its browser socket carries a
-per-launch UUID; puppeteer resolves the real endpoint itself.
+per-launch UUID; the server resolves the real endpoint itself via
+`/json/version`.
 
 **If a site returns empty results or throws on Lightpanda, that is the expected
 coverage failure** — start Chrome, change the one line, and re-run.
@@ -148,11 +165,12 @@ cp .env.example .env   # fill in TELEGRAM_*, TZ, etc.
 docker compose up -d --build
 ```
 
-`docker compose ps` should show `web-task-monitor` and `lightpanda` running.
-With `NODE_ENV=production` (set automatically for the container) Fastify
-serves the built dashboard itself, so the whole thing is one port and nginx is
-optional. Compose runs exactly one instance of the app — a second would fight
-the first over the browser and double every scheduled run.
+`docker compose ps` should show `web-task-monitor` and `lightpanda` running. The
+image builds the dashboard and the Go binary in separate stages and ships one
+runtime container; the server serves the built dashboard from its own origin, so
+the whole thing is one port and nginx is optional. Compose runs exactly one
+instance of the app — a second would fight the first over the browser and double
+every scheduled run.
 
 Redeploy after pulling changes. Tasks themselves need no redeploy — they live in
 the database:
@@ -165,30 +183,31 @@ Logs: `docker compose logs -f app`. The SQLite database lives in `./data`,
 bind-mounted into the container, so it survives `docker compose down` and
 image rebuilds.
 
-## Shared types
+## The contract on two sides
 
-`packages/shared` declares the HTTP contract and deliberately publishes **no
-runtime entry point**. npm workspaces symlink it into `node_modules`, and Node
-refuses to strip types from there (`ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING`)
-— so a runtime export would fail at boot. Type-only imports erase completely and
-are unaffected.
+`server/internal/types` is the authority. `client/src/types/index.ts` mirrors it
+as TypeScript declarations and nothing else — no generator, no build step, just
+two files that have to agree. The json tags on the Go structs are what pin them
+together, and they are deliberately inconsistent (`cron_expr` beside
+`waitForSelector`) because that is what the wire format already was.
 
-The practical rule: import types from `@breckr/shared`, and keep runtime values
-in each package's own `constants/`, typed against those types. A value import
-from the shared package fails at build, which is where you want to find out.
-
-Relative imports inside the server carry a `.ts` extension; `tsc` rewrites them
-to `.js` on emit. That is what lets `npm run dev` execute the sources directly
-while production runs the compiled output — Node will not map a `.js` specifier
-onto a `.ts` file, so the usual `nodenext` convention would break the dev loop.
+Runtime tables that both sides need — which operators go with which extraction
+kind — live in `server/internal/types/constants.go` and, separately, in
+`client/src/constants/`. The server's copy is the one that decides; the client's
+only stops the form offering a pairing the server would reject anyway.
 
 ## Configuration
 
 All in `.env` (see `.env.example`). `BROWSER_WS_ENDPOINT`,
 `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` (both or neither), `PORT`, `HOST`,
 `DB_PATH`, `TZ` (cron uses wall-clock time in this zone),
-`DEFAULT_TIMEOUT_MS`, `RUN_RETENTION_DAYS`. Missing or contradictory values fail
-at boot rather than at the first tick.
+`DEFAULT_TIMEOUT_MS`, `RUN_RETENTION_DAYS`, `CLIENT_DIST` (the dashboard build to
+serve), `CLIENT_ALLOWED_ORIGIN`. Missing or contradictory values fail at boot
+rather than at the first tick.
+
+Relative `DB_PATH` and `CLIENT_DIST` resolve against the directory holding the
+`.env`, so they work whether the binary runs from the repo root or from
+`server/`.
 
 ## API
 
@@ -204,8 +223,9 @@ at boot rather than at the first tick.
 | `GET /api/runs/:id` | full result / error |
 | `POST /api/tasks/:id/run-now` | trigger immediately (works while disabled) |
 
-A spec that fails validation comes back `400 { error, field }`, where `field`
-names the control that was wrong.
+Every successful response is `{ "data": … }`. Failures are `{ "error": … }` at
+the top level, with a `field` naming the control that was wrong when a spec
+fails validation.
 
 Creating or updating a task takes either a structured `schedule` — what the
 dashboard's builder sends, converted to cron by the server — or a raw
@@ -216,26 +236,29 @@ express comes back as `{ every: "custom", cron }` and is left alone by an edit.
 ## Testing
 
 ```bash
-npm test
+make test
 ```
 
-`node:test`, no extra dependencies. The suite covers the behavior that is easy
-to break by accident: the edge-trigger state machine through every delivery
+Standard `go test`, no extra dependencies. The suite covers the behavior that is
+easy to break by accident: the edge-trigger state machine through every delivery
 outcome, mutex serialization, run timeouts, spec validation, every comparison
-operator, live registry mutation (register / reschedule / unregister), and the
-storage guarantees (boot sweep, retention, pagination, delete cascade).
+operator, the schedule ⇄ cron round trip, live registry mutation (register /
+reschedule / unregister), and the storage guarantees (boot sweep, retention,
+pagination, delete cascade).
 
-Tests run serially — they share one SQLite database, and concurrent processes
-racing to create the schema is a real source of flakes. They use a separate
-database file and never touch `data/monitor.db`.
+Each test gets its own SQLite file under `t.TempDir()`, so nothing touches
+`data/monitor.db` and nothing has to run serially.
 
 ## Notes
 
 - Runs are serialized: Lightpanda's CDP server accepts one connection, one
-  context and one page at a time. `noOverlap` stops a task overlapping itself;
-  an in-process mutex stops different tasks colliding.
+  context and one page at a time. `SkipIfStillRunning` stops a task overlapping
+  itself; an in-process mutex stops different tasks colliding.
 - A run row is written *before* execution, so a crash stays visible instead of
   vanishing. Rows left `running` are marked failed at the next boot.
 - Runs older than `RUN_RETENTION_DAYS` are pruned at boot and daily at 04:00.
 - `GET /api/runs` returns `condition_met` and `notified` as real booleans; the
-  repository converts SQLite's 0/1 at the boundary so the shared types are honest.
+  store converts SQLite's 0/1 at the boundary so the contract is honest.
+- The schema is applied by goose at boot. A database written by the previous Node
+  server migrates in place: every table is created `IF NOT EXISTS`, so the first
+  run just stamps the version.
