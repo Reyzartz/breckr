@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"breckr-server/internal/config"
 	"breckr-server/internal/types"
 )
 
@@ -20,6 +19,10 @@ Reason that decides whether the alert is still owed, and the Detail that is the
 only thing anyone can act on once the alert has failed.
 
 A live Telegram is never contacted -- baseURL points at an httptest server.
+
+"disabled" is deliberately not tested here: with channels being rows, a transport
+that exists is a transport that is configured, and "nothing to send to" is now the
+dispatcher's judgement. See dispatcher_test.go.
 */
 
 func newTestTelegram(t *testing.T, handler http.HandlerFunc) *Telegram {
@@ -29,7 +32,7 @@ func newTestTelegram(t *testing.T, handler http.HandlerFunc) *Telegram {
 	t.Cleanup(server.Close)
 
 	telegram := NewTelegram(
-		config.TelegramConfig{Token: "test-token", ChatID: "42", Enabled: true},
+		&TelegramSpec{Token: "test-token", ChatID: "42"},
 		log.New(io.Discard, "", 0),
 	)
 	telegram.baseURL = server.URL
@@ -45,7 +48,7 @@ func TestASuccessfulSendReportsDelivered(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	outcome := telegram.Send(context.Background(), "hello")
+	outcome := telegram.Send(context.Background(), Message{Body: "hello"})
 
 	if !outcome.Delivered || outcome.Reason != types.NotificationSent {
 		t.Fatalf("outcome = %+v, want delivered/sent", outcome)
@@ -56,6 +59,27 @@ func TestASuccessfulSendReportsDelivered(t *testing.T) {
 	if !strings.Contains(string(body), `"text":"hello"`) {
 		t.Fatalf("body = %s, want the message", body)
 	}
+	if !strings.Contains(string(body), `"chat_id":"42"`) {
+		t.Fatalf("body = %s, want the configured chat id", body)
+	}
+}
+
+// The token belongs in the path, not the body -- a send that omits it reaches
+// Telegram and is rejected as unauthorized, which reads as a bad credential
+// rather than as a malformed request.
+func TestTheTokenIsSentInThePath(t *testing.T) {
+	var path string
+
+	telegram := newTestTelegram(t, func(w http.ResponseWriter, r *http.Request) {
+		path = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	})
+
+	telegram.Send(context.Background(), Message{Body: "hello"})
+
+	if path != "/bottest-token/sendMessage" {
+		t.Fatalf("path = %q, want the token and sendMessage", path)
+	}
 }
 
 func TestARejectionCarriesTelegramsOwnReason(t *testing.T) {
@@ -64,7 +88,7 @@ func TestARejectionCarriesTelegramsOwnReason(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":false,"description":"chat not found"}`))
 	})
 
-	outcome := telegram.Send(context.Background(), "hello")
+	outcome := telegram.Send(context.Background(), Message{Body: "hello"})
 
 	if outcome.Delivered || outcome.Reason != types.NotificationError {
 		t.Fatalf("outcome = %+v, want undelivered/error", outcome)
@@ -79,40 +103,23 @@ func TestARejectionCarriesTelegramsOwnReason(t *testing.T) {
 	}
 }
 
-func TestAnUnreachableTransportIsAnErrorNotADisabledNotifier(t *testing.T) {
+func TestAnUnreachableTransportIsAnError(t *testing.T) {
 	telegram := NewTelegram(
-		config.TelegramConfig{Token: "test-token", ChatID: "42", Enabled: true},
+		&TelegramSpec{Token: "test-token", ChatID: "42"},
 		log.New(io.Discard, "", 0),
 	)
 	// A port nothing listens on: the send fails before it gets an answer.
 	telegram.baseURL = "http://127.0.0.1:1"
 
-	outcome := telegram.Send(context.Background(), "hello")
+	outcome := telegram.Send(context.Background(), Message{Body: "hello"})
 
-	// Must be "error", not "disabled" -- the alert is still owed, and the
-	// runner leaves the task disarmed so the next run retries it.
+	// Must be "error", not "disabled" -- the alert is still owed, and the runner
+	// leaves the task disarmed so the next run retries it.
 	if outcome.Reason != types.NotificationError {
 		t.Fatalf("reason = %q, want error", outcome.Reason)
 	}
 	if outcome.Detail == "" {
 		t.Fatal("an unreachable transport must still say why")
-	}
-}
-
-func TestAnUnconfiguredNotifierReportsDisabled(t *testing.T) {
-	telegram := NewTelegram(
-		config.TelegramConfig{Enabled: false},
-		log.New(io.Discard, "", 0),
-	)
-
-	outcome := telegram.Send(context.Background(), "hello")
-
-	if outcome.Delivered || outcome.Reason != types.NotificationDisabled {
-		t.Fatalf("outcome = %+v, want undelivered/disabled", outcome)
-	}
-	// Nothing is owed here, so the detail is the fix rather than a fault.
-	if !strings.Contains(outcome.Detail, "TELEGRAM_BOT_TOKEN") {
-		t.Fatalf("detail = %q, want it to name what is missing", outcome.Detail)
 	}
 }
 
@@ -124,7 +131,8 @@ func TestAnOverlongMessageIsTruncatedNotRejected(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	outcome := telegram.Send(context.Background(), strings.Repeat("a", types.TelegramMaxMessageLength+500))
+	outcome := telegram.Send(context.Background(),
+		Message{Body: strings.Repeat("a", types.TelegramMaxMessageLength+500)})
 
 	if !outcome.Delivered {
 		t.Fatalf("outcome = %+v, want delivered", outcome)

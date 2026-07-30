@@ -4,11 +4,24 @@ import { Bell, Moon, Plus, RefreshCw, Sun } from "lucide-react";
 import type { Run, TaskWithStatus } from "./types/index.ts";
 import { TaskList } from "./components/TaskList.tsx";
 import { TaskFormModal } from "./components/TaskFormModal.tsx";
+import { ChannelsModal } from "./components/ChannelsModal.tsx";
 import { RunHistory } from "./components/RunHistory.tsx";
 import { RunDetail } from "./components/RunDetail.tsx";
 import { useMonitorData } from "./hooks/useMonitorData.ts";
 import { useRunFilters } from "./hooks/useRunFilters.ts";
 import { useTheme } from "./hooks/useTheme.ts";
+
+/**
+ * Enabled tasks that alert nowhere.
+ *
+ * Orphaned tasks are excluded: they cannot run at all, so a missing channel is
+ * not their most pressing problem, and the list already flags them.
+ */
+function silentTasks(tasks: TaskWithStatus[]): TaskWithStatus[] {
+  return tasks.filter(
+    (task) => task.enabled && !task.orphaned && task.channel_ids.length === 0
+  );
+}
 
 export default function App() {
   const { theme, toggleTheme } = useTheme();
@@ -17,19 +30,23 @@ export default function App() {
     tasks,
     runs,
     health,
+    channels,
     error,
     loading,
     busyTaskId,
-    testingNotification,
+    testingChannelId,
     notificationTest,
     refresh,
     toggleTask,
     runNow,
-    testNotification,
+    runChannelTest,
     dismissNotificationTest,
     addTask,
     saveTask,
     removeTask,
+    addChannel,
+    saveChannel,
+    removeChannel,
   } = useMonitorData(filters);
 
   const [selectedRun, setSelectedRun] = useState<Run | null>(null);
@@ -37,9 +54,14 @@ export default function App() {
   // Null while closed. Editing carries the task; creating carries "new", which
   // distinguishes it from closed without a second flag.
   const [editing, setEditing] = useState<TaskWithStatus | "new" | null>(null);
+  const [managingChannels, setManagingChannels] = useState(false);
 
   const openCreate = () => {
     setEditing("new");
+  };
+
+  const openChannels = () => {
+    setManagingChannels(true);
   };
 
   return (
@@ -55,14 +77,9 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            icon={Bell}
-            disabled={testingNotification}
-            onClick={() => void testNotification()}
-          >
-            {testingNotification ? "Sending…" : "Test notification"}
+          <Button size="sm" variant="ghost" icon={Bell} onClick={openChannels}>
+            Channels
+            {channels.length > 0 && ` (${String(channels.length)})`}
           </Button>
           <Button
             size="sm"
@@ -115,34 +132,40 @@ export default function App() {
           {health && !health.notifications.configured && (
             <div className="mb-4">
               <Alert variant="warning">
-                Notifications are not configured — conditions will still be
-                checked and recorded, but no alert will be sent. Set{" "}
-                <code>TELEGRAM_BOT_TOKEN</code> and <code>TELEGRAM_CHAT_ID</code>
-                .
-              </Alert>
-            </div>
-          )}
-
-          {notificationTest && (
-            <div className="mb-4">
-              <Alert variant={notificationTest.ok ? "success" : "error"}>
                 <span className="flex flex-wrap items-baseline gap-x-2">
                   <span>
-                    {notificationTest.ok
-                      ? "Test notification delivered — check your chat."
-                      : `Test notification not delivered (${notificationTest.status}). ${notificationTest.detail ?? ""}`}
+                    No notification channels — conditions will still be checked
+                    and recorded, but no alert will be sent.
                   </span>
                   <button
                     type="button"
                     className="cursor-pointer underline underline-offset-2"
-                    onClick={dismissNotificationTest}
+                    onClick={openChannels}
                   >
-                    Dismiss
+                    Add a channel
                   </button>
                 </span>
               </Alert>
             </div>
           )}
+
+          {/*
+            A task that alerts nowhere is a silent monitor, which is the same
+            failure as having no channels at all — just scoped to one task.
+          */}
+          {health?.notifications.configured &&
+            silentTasks(tasks).length > 0 && (
+              <div className="mb-4">
+                <Alert variant="warning">
+                  No channels selected for{" "}
+                  {silentTasks(tasks)
+                    .map((task) => task.name)
+                    .join(", ")}{" "}
+                  — {silentTasks(tasks).length === 1 ? "it" : "they"} will never
+                  alert. Edit the task to pick one.
+                </Alert>
+              </div>
+            )}
 
           <section>
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -182,11 +205,29 @@ export default function App() {
       <TaskFormModal
         isOpen={editing !== null}
         task={editing === "new" ? null : editing}
+        channels={channels}
         onClose={() => {
           setEditing(null);
         }}
         onCreate={addTask}
         onSave={saveTask}
+        onManageChannels={openChannels}
+      />
+
+      <ChannelsModal
+        isOpen={managingChannels}
+        channels={channels}
+        onClose={() => {
+          setManagingChannels(false);
+          dismissNotificationTest();
+        }}
+        onCreate={addChannel}
+        onSave={saveChannel}
+        onDelete={removeChannel}
+        onTest={runChannelTest}
+        testingChannelId={testingChannelId}
+        notificationTest={notificationTest}
+        onDismissTest={dismissNotificationTest}
       />
 
       <RunDetail

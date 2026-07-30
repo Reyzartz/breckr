@@ -1,8 +1,11 @@
 # Web Task Monitor
 
 Self-hosted service that runs browser tasks on a schedule, checks a condition
-against what it extracts, sends a Telegram alert when the condition is met, and
-serves a dashboard of run history.
+against what it extracts, alerts you when the condition is met, and serves a
+dashboard of run history.
+
+Alerts go to any number of channels — Telegram, Discord, Slack, email, or your
+own webhook — created from the dashboard and picked per task.
 
 Tasks are created from the dashboard — no code, no rebuild.
 
@@ -15,7 +18,11 @@ is a direct function call rather than a hop to a separate scheduler.
 cron tick ──┐
             ├─> runner ──> browser (CDP) ──> extract ──> SQLite
 run-now   ──┘                                   │
-                                                └─> condition ──> Telegram
+                                                └─> condition ──> dispatcher ──┬─> Telegram
+                                                                               ├─> Discord
+                                                                               ├─> Slack
+                                                                               ├─> email
+                                                                               └─> webhook
 ```
 
 A task is a **declarative spec** stored in SQLite — a URL, a CSS selector, what
@@ -42,7 +49,8 @@ Inside `server/internal`:
 | `scheduler` | the live cron registry |
 | `runner` | the edge-trigger state machine |
 | `browser` | the CDP connection and the one mutex every run passes through |
-| `notifier` | Telegram |
+| `notifier` | a transport per channel kind, and the dispatcher that fans an alert out to all of a task's channels |
+| `crypto` | AES-GCM at rest for channel credentials |
 | `types` | the HTTP contract, mirrored by `client/src/types` |
 
 ## Setup
@@ -117,9 +125,35 @@ sees no change, which re-arms it for the next one. It compares against the last
 **successful** run, and reads as "no change" before the first one — so a new
 task never alerts on the first thing it sees.
 
-If Telegram is configured but a send fails, the alert is retried on the next run
-rather than being swallowed. If Telegram is not configured at all, messages are
-logged and dedup behaves exactly as it would in production.
+A task's channels are all tried in parallel. One success counts as delivered —
+retrying for the sake of a failed channel would re-alert the ones that already
+worked, and duplicate alerts erode trust faster than a missing one. The failures
+are still recorded per channel and shown on the run, so a permanently broken
+channel is visible rather than merely retried.
+
+If *every* channel fails, the alert is still owed: the trigger stays disarmed and
+the next run retries it. If a task has no channels at all, messages are logged and
+dedup behaves exactly as it would in production.
+
+### Notification channels
+
+Channels are rows, not environment variables — created in the dashboard, editable
+without a restart. Each is one of Telegram, Discord, Slack, email (Gmail SMTP by
+default) or a custom webhook, and each task picks any number of them.
+
+**Test** on a channel sends one real message through the same path a real alert
+takes, so a token the API rejects is caught before it costs you an alert. You can
+test a config before saving it.
+
+Credentials are encrypted at rest with AES-GCM. The key is generated on first
+boot into `secret.key` beside the database, mode `0600` — back the two up
+together, since the database alone cannot be read without it. A channel whose key
+no longer matches is shown as **needs credentials** rather than disappearing.
+Secrets are never returned by the API: the dashboard sees them masked, and
+leaving a masked field untouched keeps what is stored.
+
+Muting a channel keeps it attached to its tasks but skips it when alerting.
+Deleting one keeps the run history it appears in, under the name it had.
 
 ### Tasks with no definition
 
@@ -161,7 +195,7 @@ One command builds and runs everything — the app and the browser it drives:
 
 ```bash
 git clone <repo> && cd breckr
-cp .env.example .env   # fill in TELEGRAM_*, TZ, etc.
+cp .env.example .env   # fill in BROWSER_WS_ENDPOINT, TZ, etc.
 docker compose up -d --build
 ```
 
@@ -198,12 +232,15 @@ only stops the form offering a pairing the server would reject anyway.
 
 ## Configuration
 
-All in `.env` (see `.env.example`). `BROWSER_WS_ENDPOINT`,
-`TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` (both or neither), `PORT`, `HOST`,
+All in `.env` (see `.env.example`). `BROWSER_WS_ENDPOINT`, `PORT`, `HOST`,
 `DB_PATH`, `TZ` (cron uses wall-clock time in this zone),
 `DEFAULT_TIMEOUT_MS`, `RUN_RETENTION_DAYS`, `CLIENT_DIST` (the dashboard build to
-serve), `CLIENT_ALLOWED_ORIGIN`. Missing or contradictory values fail at boot
-rather than at the first tick.
+serve), `CLIENT_ALLOWED_ORIGIN`, `SECRET_KEY_FILE` (defaults to `secret.key`
+beside the database). Missing or contradictory values fail at boot rather than at
+the first tick.
+
+Notification credentials are deliberately absent: channels are managed from the
+dashboard and stored encrypted in the database.
 
 Relative `DB_PATH` and `CLIENT_DIST` resolve against the directory holding the
 `.env`, so they work whether the binary runs from the repo root or from
@@ -216,12 +253,18 @@ Relative `DB_PATH` and `CLIENT_DIST` resolve against the directory holding the
 | `GET /api/health` | liveness + whether the browser is reachable |
 | `GET /api/tasks` | tasks with last run and next run time |
 | `POST /api/tasks` | create; schedules it immediately |
-| `PATCH /api/tasks/:id` | any of `{ enabled, name, schedule \| cron_expr, spec }` |
+| `PATCH /api/tasks/:id` | any of `{ enabled, name, schedule \| cron_expr, spec, channel_ids }` |
 | `DELETE /api/tasks/:id` | delete; run history cascades with it |
 | `POST /api/tasks/test` | run a draft spec once — no run row, no notification |
 | `GET /api/runs` | `task_id`, `status`, `limit` (max 200), `offset` |
-| `GET /api/runs/:id` | full result / error |
+| `GET /api/runs/:id` | full result / error, plus the per-channel `attempts` |
 | `POST /api/tasks/:id/run-now` | trigger immediately (works while disabled) |
+| `GET /api/channels` | channels with their secrets masked |
+| `POST /api/channels` | create `{ name, type, config, enabled? }` |
+| `PATCH /api/channels/:id` | any of `{ name, config, enabled }`; omitted secrets are kept |
+| `DELETE /api/channels/:id` | delete; task links cascade, history is kept |
+| `POST /api/channels/test` | send a test through an unsaved `{ type, config }` |
+| `POST /api/channels/:id/test` | send a test through a saved channel |
 
 Every successful response is `{ "data": … }`. Failures are `{ "error": … }` at
 the top level, with a `field` naming the control that was wrong when a spec

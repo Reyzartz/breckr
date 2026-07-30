@@ -6,6 +6,8 @@
 // depends on both spellings exactly as they are.
 package types
 
+import "encoding/json"
+
 // RunStatus is the terminal state of a run. "running" is written before
 // execution starts.
 type RunStatus string
@@ -52,6 +54,10 @@ type Run struct {
 	NotificationMessage *string `json:"notification_message"`
 	// Joined from tasks; null if the task row has since been removed.
 	TaskName *string `json:"task_name"`
+	// Per-channel breakdown behind the aggregate above. Populated only by
+	// GET /api/runs/{id}: the list view shows dozens of runs and does not need
+	// a second query per row to render a status badge.
+	Attempts []*NotificationAttempt `json:"attempts,omitempty"`
 }
 
 // --- Task specs -------------------------------------------------------------
@@ -195,6 +201,72 @@ type TaskWithStatus struct {
 	// True when the row carries no usable spec -- it keeps its history but can
 	// no longer be run, and the dashboard offers only deletion.
 	Orphaned bool `json:"orphaned"`
+	// Channels this task alerts to, as saved. Includes disabled ones: the form
+	// shows the links the user made, not the ones that would deliver right now.
+	ChannelIDs []string `json:"channel_ids"`
+}
+
+// --- Channels ---------------------------------------------------------------
+
+// ChannelType selects which transport delivers an alert. The stored config blob
+// is parsed according to it, so it is the discriminator for everything else on
+// the row.
+type ChannelType string
+
+const (
+	ChannelTelegram ChannelType = "telegram"
+	ChannelDiscord  ChannelType = "discord"
+	ChannelSlack    ChannelType = "slack"
+	ChannelWebhook  ChannelType = "webhook"
+	ChannelEmail    ChannelType = "email"
+)
+
+var ChannelTypes = []ChannelType{
+	ChannelTelegram, ChannelDiscord, ChannelSlack, ChannelWebhook, ChannelEmail,
+}
+
+func IsChannelType(value string) bool {
+	for _, kind := range ChannelTypes {
+		if string(kind) == value {
+			return true
+		}
+	}
+	return false
+}
+
+// Channel is a delivery destination as the API returns it.
+//
+// Config carries the *redacted* view -- secrets are masked to their last four
+// characters. The decrypted config never leaves the notifier package, so no
+// response, log line or error message can carry a token by accident.
+type Channel struct {
+	ID      string         `json:"id"`
+	Name    string         `json:"name"`
+	Type    ChannelType    `json:"type"`
+	Enabled bool           `json:"enabled"`
+	Config  map[string]any `json:"config"`
+	// True when the stored config could not be decrypted or no longer parses --
+	// almost always a replaced key file. The channel keeps its identity so the
+	// dashboard can say which one to re-enter, rather than the row vanishing.
+	Broken    bool   `json:"broken"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+// NotificationAttempt is one channel's outcome for one run.
+//
+// ChannelID goes null when the channel is deleted, but the name and type are
+// copies -- history stays readable after the destination is gone.
+type NotificationAttempt struct {
+	ID          int64              `json:"id"`
+	RunID       int64              `json:"run_id"`
+	ChannelID   *string            `json:"channel_id"`
+	ChannelName string             `json:"channel_name"`
+	ChannelType ChannelType        `json:"channel_type"`
+	Status      NotificationReason `json:"status"`
+	Detail      *string            `json:"detail"`
+	Message     *string            `json:"message"`
+	AttemptedAt string             `json:"attempted_at"`
 }
 
 // --- Responses --------------------------------------------------------------
@@ -218,9 +290,13 @@ type BrowserHealth struct {
 // NotifierHealth reports whether alerts can be delivered at all, so the
 // dashboard can warn about a silent monitor before anyone waits on an alert
 // that was never going to arrive.
+//
+// Configured now means "at least one enabled channel exists" rather than "the
+// env vars are set" -- with channels being rows, an empty table is the new way
+// to be silently unreachable.
 type NotifierHealth struct {
-	Configured bool   `json:"configured"`
-	Transport  string `json:"transport"`
+	Configured bool `json:"configured"`
+	Channels   int  `json:"channels"`
 }
 
 type HealthResponse struct {
@@ -233,8 +309,8 @@ type HealthResponse struct {
 	Timezone      string         `json:"timezone"`
 }
 
-// TestNotificationResponse is the outcome of POST /api/notifications/test: one
-// real delivery attempt, on demand.
+// TestNotificationResponse is the outcome of a channel test: one real delivery
+// attempt, on demand.
 //
 // Always returned with 200. A rejection by the transport is a successful report
 // of a failed delivery, not an HTTP error -- same as TestTaskResponse.
@@ -301,6 +377,10 @@ type CreateTaskRequest struct {
 	Spec     *TaskSpec `json:"spec"`
 	// Defaults to true.
 	Enabled *bool `json:"enabled,omitempty"`
+	// Channels to alert on. Empty is allowed -- a task that only records history
+	// is legitimate -- but the dashboard warns, since a monitor that cannot
+	// alert is usually a mistake rather than a choice.
+	ChannelIDs []string `json:"channel_ids,omitempty"`
 }
 
 // UpdateTaskRequest patches a task; only what is present is changed.
@@ -311,6 +391,36 @@ type UpdateTaskRequest struct {
 	Schedule *Schedule `json:"schedule,omitempty"`
 	CronExpr *string   `json:"cron_expr,omitempty"`
 	Spec     *TaskSpec `json:"spec,omitempty"`
+	// Absent leaves the links alone; present replaces them wholesale, including
+	// with [] to detach every channel.
+	ChannelIDs *[]string `json:"channel_ids,omitempty"`
+}
+
+// CreateChannelRequest creates a delivery destination. Config is left raw here
+// and parsed according to Type, which is the only thing that knows its shape.
+type CreateChannelRequest struct {
+	Name string          `json:"name"`
+	Type ChannelType     `json:"type"`
+	Config json.RawMessage `json:"config"`
+	// Defaults to true.
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// UpdateChannelRequest patches a channel; only what is present is changed.
+//
+// An absent Config keeps the stored credentials, so renaming or muting a channel
+// does not mean re-typing a token the dashboard was never shown.
+type UpdateChannelRequest struct {
+	Name    *string         `json:"name,omitempty"`
+	Config  json.RawMessage `json:"config,omitempty"`
+	Enabled *bool           `json:"enabled,omitempty"`
+}
+
+// TestChannelRequest tests a channel that has not been saved yet, so a
+// misconfiguration is caught while the form is still open.
+type TestChannelRequest struct {
+	Type   ChannelType     `json:"type"`
+	Config json.RawMessage `json:"config"`
 }
 
 // TestTaskRequest is a draft task, run once without being saved.

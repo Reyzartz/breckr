@@ -8,10 +8,60 @@ export type TriggerSource = "cron" | "manual";
  * Why an alert did or did not go out.
  *
  * `disabled` and `error` are both "nothing arrived", but they are different
- * problems: `disabled` means no transport is configured, `error` means one is
- * and it rejected the message. Only `error` will be retried on the next run.
+ * problems: `disabled` means the task has no channels attached, `error` means it
+ * does and every one of them failed. Only `error` will be retried on the next
+ * run.
  */
 export type NotificationReason = "sent" | "disabled" | "error";
+
+/** Which transport delivers a channel's alerts. */
+export type ChannelType =
+  | "telegram"
+  | "discord"
+  | "slack"
+  | "webhook"
+  | "email";
+
+/**
+ * A delivery destination the user manages.
+ *
+ * `config` is always the *redacted* view: secrets come back masked to their last
+ * four characters and are never returned in full, so the form treats them as
+ * write-only — an untouched masked field means "keep what is stored".
+ */
+export interface Channel {
+  id: string;
+  name: string;
+  type: ChannelType;
+  enabled: boolean;
+  config: Record<string, unknown>;
+  /**
+   * True when the stored credentials could not be decrypted — almost always a
+   * replaced key file. The channel keeps its name so it can be identified and
+   * re-entered.
+   */
+  broken: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * One channel's outcome for one run.
+ *
+ * `channel_id` goes null once the channel is deleted, but the name and type are
+ * copies — history stays readable after the destination is gone.
+ */
+export interface NotificationAttempt {
+  id: number;
+  run_id: number;
+  channel_id: string | null;
+  channel_name: string;
+  channel_type: ChannelType;
+  status: NotificationReason;
+  detail: string | null;
+  message: string | null;
+  attempted_at: string;
+}
 
 /**
  * One execution of a task.
@@ -49,6 +99,11 @@ export interface Run {
   notification_message: string | null;
   /** Joined from tasks; null if the task row has since been removed. */
   task_name?: string | null;
+  /**
+   * Per-channel breakdown behind the aggregate above. Only present on
+   * GET /api/runs/:id — the list view does not pay for it.
+   */
+  attempts?: NotificationAttempt[];
 }
 
 // --- Task specs ------------------------------------------------------------
@@ -187,6 +242,11 @@ export interface TaskWithStatus extends Task {
    * longer be run, and the dashboard offers only deletion.
    */
   orphaned: boolean;
+  /**
+   * Channels this task alerts to, as saved. Includes disabled ones: the form
+   * shows the links the user made, not the ones that would deliver right now.
+   */
+  channel_ids: string[];
 }
 
 // --- Responses -------------------------------------------------------------
@@ -209,20 +269,20 @@ export interface HealthResponse {
     error?: string;
   };
   /**
-   * Whether alerts can be delivered at all. Reported from config rather than
-   * probed — a real probe would message the user's chat on every health poll.
+   * Whether alerts can be delivered at all. Counted rather than probed — a real
+   * probe would message the user's chat on every health poll.
    */
   notifications: {
+    /** True when at least one enabled channel exists. */
     configured: boolean;
-    transport: string;
+    channels: number;
   };
   tasks: number;
   timezone: string;
 }
 
 /**
- * Outcome of POST /api/notifications/test: one real delivery attempt, on
- * demand.
+ * Outcome of a channel test: one real delivery attempt, on demand.
  *
  * Always returned with 200 — a rejection by the transport is a successful
  * report of a failed delivery, not an HTTP error.
@@ -300,6 +360,8 @@ export interface CreateTaskRequest {
   spec: TaskSpec;
   /** Defaults to true. */
   enabled?: boolean;
+  /** Channels to alert on. Empty means the task records history but never alerts. */
+  channel_ids?: string[];
 }
 
 /** Every field is optional; only what is present is changed. */
@@ -310,6 +372,39 @@ export interface UpdateTaskRequest {
   schedule?: Schedule;
   cron_expr?: string;
   spec?: TaskSpec;
+  /** Absent leaves the links alone; `[]` detaches every channel. */
+  channel_ids?: string[];
+}
+
+/**
+ * Creates a channel. `config` is shaped by `type` — see CHANNEL_FIELDS in
+ * constants for what each transport needs.
+ */
+export interface CreateChannelRequest {
+  name: string;
+  type: ChannelType;
+  config: Record<string, unknown>;
+  /** Defaults to true. */
+  enabled?: boolean;
+}
+
+/**
+ * Patches a channel; only what is present is changed.
+ *
+ * An omitted `config` keeps the stored credentials, and within a submitted
+ * config a blank or still-masked field keeps its stored value — so a rename
+ * never costs a token the dashboard was never shown.
+ */
+export interface UpdateChannelRequest {
+  name?: string;
+  config?: Record<string, unknown>;
+  enabled?: boolean;
+}
+
+/** A channel config tested before it has been saved. */
+export interface TestChannelRequest {
+  type: ChannelType;
+  config: Record<string, unknown>;
 }
 
 /** A draft task, run once without being saved. */

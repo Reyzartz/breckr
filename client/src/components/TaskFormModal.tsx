@@ -13,6 +13,7 @@ import {
 } from "brake-ui";
 import { FlaskConical, Plus, SquarePen } from "lucide-react";
 import type {
+  Channel,
   CompareOperator,
   ExtractKind,
   Schedule,
@@ -32,22 +33,33 @@ import {
 } from "../constants/index.ts";
 import { slugify } from "../utils/format.ts";
 import { ScheduleField, type ScheduleFields } from "./ScheduleField.tsx";
+import { ChannelPicker } from "./ChannelPicker.tsx";
 
 interface TaskFormModalProps {
   isOpen: boolean;
   /** The task being edited, or null to create a new one. */
   task: TaskWithStatus | null;
+  /** Every channel, so the picker can offer them. */
+  channels: Channel[];
   onClose: () => void;
   onCreate: (input: {
     id: string;
     name: string;
     schedule: Schedule;
     spec: TaskSpec;
+    channel_ids: string[];
   }) => Promise<void>;
   onSave: (
     id: string,
-    patch: { name: string; schedule: Schedule; spec: TaskSpec }
+    patch: {
+      name: string;
+      schedule: Schedule;
+      spec: TaskSpec;
+      channel_ids: string[];
+    }
   ) => Promise<void>;
+  /** Opens the channel manager from inside the form. */
+  onManageChannels: () => void;
 }
 
 interface FormState extends ScheduleFields {
@@ -206,13 +218,20 @@ function toSpec(form: FormState): TaskSpec {
 export function TaskFormModal({
   isOpen,
   task,
+  channels,
   onClose,
   onCreate,
   onSave,
+  onManageChannels,
 }: TaskFormModalProps) {
   const isEditing = task !== null;
 
   const [form, setForm] = useState<FormState>(() => toFormState(task));
+  // Held outside FormState, which is flat and string-typed so `bind` can drive
+  // it — the same reason `weekdays` lives in the schedule builder.
+  const [channelIds, setChannelIds] = useState<string[]>(
+    () => task?.channel_ids ?? []
+  );
   const [fieldError, setFieldError] = useState<{ field: string; message: string } | null>(
     null
   );
@@ -248,6 +267,7 @@ export function TaskFormModal({
   useEffect(() => {
     if (!isOpen) return;
     setForm(toFormState(task));
+    setChannelIds(task?.channel_ids ?? []);
     setFieldError(null);
     setFormError(null);
     setTestResult(null);
@@ -353,6 +373,7 @@ export function TaskFormModal({
       name: form.name.trim(),
       schedule: toSchedule(form),
       spec: toSpec(form),
+      channel_ids: channelIds,
     };
 
     try {
@@ -480,6 +501,19 @@ export function TaskFormModal({
               />
             )}
           </div>
+
+          <ChannelPicker
+            channels={channels}
+            value={channelIds}
+            onChange={(next) => {
+              setChannelIds(next);
+              setFieldError((current) =>
+                current?.field === "channel_ids" ? null : current
+              );
+            }}
+            error={errorFor("channel_ids")}
+            onManageChannels={onManageChannels}
+          />
 
           <Textarea
             label="Alert message (optional)"

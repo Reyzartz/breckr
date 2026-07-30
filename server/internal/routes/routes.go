@@ -43,7 +43,14 @@ func RegisterRoutes(application *app.Application, cfg *config.Config) *chi.Mux {
 		r.Get("/runs", application.RunHandler.HandleGetAllRuns)
 		r.Get("/runs/{id}", application.RunHandler.HandleGetRun)
 
-		r.Post("/notifications/test", application.NotificationHandler.HandleTestNotification)
+		r.Get("/channels", application.ChannelHandler.HandleGetAllChannels)
+		r.Post("/channels", application.ChannelHandler.HandleCreateChannel)
+		// Registered before /channels/{id}/test so a draft is not read as a
+		// channel named "test".
+		r.Post("/channels/test", application.ChannelHandler.HandleTestDraftChannel)
+		r.Patch("/channels/{id}", application.ChannelHandler.HandleUpdateChannel)
+		r.Delete("/channels/{id}", application.ChannelHandler.HandleDeleteChannel)
+		r.Post("/channels/{id}/test", application.ChannelHandler.HandleTestChannel)
 	})
 
 	registerDashboard(r, application, cfg)

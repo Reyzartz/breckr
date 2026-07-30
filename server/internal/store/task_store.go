@@ -18,6 +18,10 @@ type CreateTaskInput struct {
 	CronExpr string
 	Spec     *types.TaskSpec
 	Enabled  bool
+	// Channels this task alerts to. Written in the same transaction as the task
+	// itself -- a task that exists without its links would notify nowhere, and
+	// the arming logic would record that as "nothing owed".
+	ChannelIDs []string
 }
 
 // UpdateTaskInput patches a task. Only the non-nil fields are written; the rest
@@ -26,10 +30,13 @@ type UpdateTaskInput struct {
 	Name     *string
 	CronExpr *string
 	Spec     *types.TaskSpec
+	// Nil leaves the links alone; a non-nil pointer replaces them wholesale,
+	// including with an empty slice to detach every channel.
+	ChannelIDs *[]string
 }
 
 func (u UpdateTaskInput) IsEmpty() bool {
-	return u.Name == nil && u.CronExpr == nil && u.Spec == nil
+	return u.Name == nil && u.CronExpr == nil && u.Spec == nil && u.ChannelIDs == nil
 }
 
 type TaskStore interface {
@@ -105,19 +112,24 @@ func (s *SQLiteTaskStore) CreateTask(input CreateTaskInput) (*types.Task, error)
 		INSERT INTO tasks (id, name, cron_expr, spec, enabled, created_at, updated_at)
 		    VALUES (?, ?, ?, ?, ?, ?, ?)`
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	at := now()
-	_, err := s.db.ExecContext(ctx, query,
-		input.ID,
-		input.Name,
-		input.CronExpr,
-		utils.SafeMarshal(input.Spec),
-		fromBool(input.Enabled),
-		at,
-		at,
-	)
+
+	err := withTx(s.db, func(tx *sql.Tx) error {
+		_, err := tx.Exec(query,
+			input.ID,
+			input.Name,
+			input.CronExpr,
+			utils.SafeMarshal(input.Spec),
+			fromBool(input.Enabled),
+			at,
+			at,
+		)
+		if err != nil {
+			return err
+		}
+
+		return setTaskChannelsTx(tx, input.ID, input.ChannelIDs)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -147,16 +159,24 @@ func (s *SQLiteTaskStore) UpdateTask(id string, patch UpdateTaskInput) (*types.T
 		args = append(args, utils.SafeMarshal(patch.Spec))
 	}
 
-	if len(assignments) > 0 {
-		assignments = append(assignments, "updated_at = ?")
-		args = append(args, now(), id)
+	if len(assignments) > 0 || patch.ChannelIDs != nil {
+		err := withTx(s.db, func(tx *sql.Tx) error {
+			if len(assignments) > 0 {
+				assignments = append(assignments, "updated_at = ?")
+				args = append(args, now(), id)
 
-		query := fmt.Sprintf("UPDATE tasks SET %s WHERE id = ?", strings.Join(assignments, ", "))
+				query := fmt.Sprintf("UPDATE tasks SET %s WHERE id = ?", strings.Join(assignments, ", "))
+				if _, err := tx.Exec(query, args...); err != nil {
+					return err
+				}
+			}
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		if _, err := s.db.ExecContext(ctx, query, args...); err != nil {
+			if patch.ChannelIDs != nil {
+				return setTaskChannelsTx(tx, id, *patch.ChannelIDs)
+			}
+			return nil
+		})
+		if err != nil {
 			return nil, err
 		}
 	}

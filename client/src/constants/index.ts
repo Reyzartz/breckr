@@ -1,4 +1,5 @@
 import type {
+  ChannelType,
   CompareOperator,
   ExtractKind,
   NotificationReason,
@@ -45,9 +46,139 @@ export const NOTIFICATION_BADGE_VARIANT: Record<
 /** How each outcome reads in the UI. */
 export const NOTIFICATION_LABEL: Record<NotificationReason, string> = {
   sent: "notified",
-  disabled: "not configured",
+  disabled: "no channels",
   error: "notify failed",
 };
+
+// --- Channels --------------------------------------------------------------
+
+/** The transports the form offers, in the order they appear. */
+export const CHANNEL_TYPE_OPTIONS: readonly {
+  value: ChannelType;
+  label: string;
+}[] = [
+  { value: "telegram", label: "Telegram" },
+  { value: "discord", label: "Discord" },
+  { value: "slack", label: "Slack" },
+  { value: "email", label: "Email (Gmail)" },
+  { value: "webhook", label: "Custom webhook" },
+];
+
+export const CHANNEL_TYPE_LABEL: Record<ChannelType, string> = {
+  telegram: "Telegram",
+  discord: "Discord",
+  slack: "Slack",
+  webhook: "Webhook",
+  email: "Email",
+};
+
+/**
+ * One config field, as the form renders it.
+ *
+ * `secret` fields come back from the server masked rather than in full, so the
+ * form leaves a masked value alone and the server keeps whatever is stored.
+ */
+export interface ChannelField {
+  name: string;
+  label: string;
+  placeholder?: string;
+  hint?: string;
+  secret?: boolean;
+  /** Rendered as a comma-separated text input and sent as an array. */
+  list?: boolean;
+  optional?: boolean;
+}
+
+/**
+ * What each transport needs, mirroring the spec structs in
+ * `server/internal/notifier/spec.go` — that file is the authority, and it
+ * re-validates everything. The `name`s are the JSON keys it decodes.
+ */
+export const CHANNEL_FIELDS: Record<ChannelType, readonly ChannelField[]> = {
+  telegram: [
+    {
+      name: "token",
+      label: "Bot token",
+      placeholder: "123456:ABC-DEF…",
+      hint: "Create a bot with @BotFather to get one.",
+      secret: true,
+    },
+    {
+      name: "chat_id",
+      label: "Chat ID",
+      placeholder: "-1001234567890",
+      hint: "Message @userinfobot to find yours.",
+    },
+  ],
+  discord: [
+    {
+      name: "webhook_url",
+      label: "Webhook URL",
+      placeholder: "https://discord.com/api/webhooks/…",
+      hint: "Server Settings → Integrations → Webhooks.",
+      secret: true,
+    },
+  ],
+  slack: [
+    {
+      name: "webhook_url",
+      label: "Webhook URL",
+      placeholder: "https://hooks.slack.com/services/…",
+      hint: "Create one at api.slack.com/apps → Incoming Webhooks.",
+      secret: true,
+    },
+  ],
+  email: [
+    {
+      name: "username",
+      label: "Username",
+      placeholder: "you@gmail.com",
+      hint: "Your full email address.",
+    },
+    {
+      name: "app_password",
+      label: "App password",
+      hint: "Gmail rejects your account password — create an app password at myaccount.google.com/apppasswords.",
+      secret: true,
+    },
+    {
+      name: "to",
+      label: "Send to",
+      placeholder: "you@example.com, ops@example.com",
+      hint: "Comma-separated.",
+      list: true,
+    },
+    {
+      name: "host",
+      label: "SMTP host",
+      placeholder: "smtp.gmail.com",
+      optional: true,
+    },
+    {
+      name: "port",
+      label: "SMTP port",
+      placeholder: "587",
+      optional: true,
+    },
+  ],
+  webhook: [
+    {
+      name: "url",
+      label: "URL",
+      placeholder: "https://example.com/hooks/breckr",
+    },
+    {
+      name: "method",
+      label: "Method",
+      placeholder: "POST",
+      hint: "POST or PUT.",
+      optional: true,
+    },
+  ],
+};
+
+/** Masked secrets come back prefixed with this, and are left untouched on save. */
+export const MASK_PREFIX = "••••";
 
 // --- Task form -------------------------------------------------------------
 

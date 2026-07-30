@@ -13,7 +13,9 @@ import (
 
 	"breckr-server/internal/browser"
 	"breckr-server/internal/config"
+	"breckr-server/internal/crypto"
 	"breckr-server/internal/migrations"
+	"breckr-server/internal/notifier"
 	"breckr-server/internal/store"
 	"breckr-server/internal/types"
 )
@@ -31,21 +33,49 @@ production ones rather than a stand-in that could drift.
 */
 
 // fakeNotifier captures messages and lets each test force the delivery outcome.
+//
+// It stands in for the whole fan-out: these tests are about what the runner does
+// with an aggregate outcome, and the aggregation rule itself is pinned in
+// notifier/dispatcher_test.go.
 type fakeNotifier struct {
 	mu      sync.Mutex
 	outcome types.NotificationOutcome
 	sent    []string
 }
 
-func (f *fakeNotifier) Send(_ context.Context, message string) types.NotificationOutcome {
+func (f *fakeNotifier) DispatchTask(_ context.Context, _ string, message notifier.Message) notifier.Fanout {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// A disabled notifier still "reports" the message (it logs it), so count
+	// A task with no channels still "reports" the message (it logs it), so count
 	// both delivered and disabled as observable alerts.
 	if f.outcome.Delivered || f.outcome.Reason == types.NotificationDisabled {
-		f.sent = append(f.sent, message)
+		f.sent = append(f.sent, message.Body)
 	}
+
+	fanout := notifier.Fanout{Aggregate: f.outcome}
+
+	// "disabled" means nothing was attached, so there is no per-channel row to
+	// write -- mirroring what the real dispatcher returns.
+	if f.outcome.Reason != types.NotificationDisabled {
+		fanout.Deliveries = []notifier.Delivery{{
+			ChannelID:   "channel-1",
+			ChannelName: "Test channel",
+			ChannelType: types.ChannelTelegram,
+			Outcome:     f.outcome,
+		}}
+	}
+
+	return fanout
+}
+
+func (f *fakeNotifier) DispatchChannel(
+	_ context.Context,
+	_ *store.StoredChannel,
+	_ notifier.Message,
+) types.NotificationOutcome {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.outcome
 }
 
@@ -65,6 +95,7 @@ type harness struct {
 	runner   *Runner
 	tasks    *store.SQLiteTaskStore
 	runs     *store.SQLiteRunStore
+	channels *store.SQLiteChannelStore
 	notifier *fakeNotifier
 }
 
@@ -85,15 +116,26 @@ func newHarness(t *testing.T, outcome types.NotificationOutcome) *harness {
 		t.Fatalf("MigrateFS: %v", err)
 	}
 
+	key, err := crypto.LoadOrCreateKey(filepath.Join(t.TempDir(), "secret.key"))
+	if err != nil {
+		t.Fatalf("LoadOrCreateKey: %v", err)
+	}
+	cipher, err := crypto.New(key)
+	if err != nil {
+		t.Fatalf("crypto.New: %v", err)
+	}
+
 	tasks := store.NewSQLiteTaskStore(db)
 	runs := store.NewSQLiteRunStore(db)
+	channels := store.NewSQLiteChannelStore(db, cipher)
 	notify := &fakeNotifier{outcome: outcome}
 	quiet := log.New(io.Discard, "", 0)
 
 	return &harness{
-		runner:   New(tasks, runs, browser.NewPool(cfg), notify, quiet),
+		runner:   New(tasks, runs, channels, browser.NewPool(cfg), notify, quiet),
 		tasks:    tasks,
 		runs:     runs,
+		channels: channels,
 		notifier: notify,
 	}
 }

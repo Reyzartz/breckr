@@ -35,24 +35,52 @@ var ScheduleFrequencies = []string{
 	FreqMinutes, FreqHours, FreqDay, FreqWeek, FreqMonth, FreqCustom,
 }
 
-// --- Telegram ---------------------------------------------------------------
+// --- Notification transports ------------------------------------------------
+
+// NotifyTimeout bounds one delivery attempt, whatever the transport. Channels
+// fan out in parallel, so it is the ceiling on the whole notification step
+// rather than a per-channel cost the run pays serially.
+const NotifyTimeout = 10 * time.Second
+
+// TruncationSuffix marks a message that hit its destination's length cap.
+const TruncationSuffix = "\n… (truncated)"
+
+// ErrorBodyLimit caps how much of a rejection body is kept as the failure
+// detail. Enough for the reason, not enough for an HTML error page to fill the
+// run row.
+const ErrorBodyLimit = 500
 
 const (
 	TelegramAPIBase          = "https://api.telegram.org"
-	TelegramTimeout          = 10 * time.Second
 	TelegramMaxMessageLength = 4096
-	TelegramTruncationSuffix = "\n… (truncated)"
+	DiscordMaxMessageLength  = 2000
+	SlackMaxMessageLength    = 3000
 )
+
+const (
+	DefaultSMTPHost = "smtp.gmail.com"
+	// 587 is STARTTLS. 465 (implicit TLS) is not supported: one handshake path
+	// is enough, and Gmail serves both.
+	DefaultSMTPPort = 587
+	// DefaultEmailSubject is used when an alert carries no subject of its own.
+	DefaultEmailSubject = "breckr alert"
+)
+
+// WebhookSource identifies the sender in the generic webhook payload, so a
+// receiver handling several sources can tell which one this is.
+const WebhookSource = "breckr"
+
+// MaxChannelNameLength keeps names readable in the task form's channel chips.
+const MaxChannelNameLength = 60
 
 // --- Notifications ----------------------------------------------------------
 
-// TestNotificationMessage is the body POST /api/notifications/test sends. It
-// says what it is, because it lands in a real chat alongside real alerts.
-const TestNotificationMessage = "Test notification from Web Task Monitor. If you can read this, alerts are working."
+// TestNotificationMessage is the body a channel test sends. It says what it is,
+// because it lands in a real chat alongside real alerts.
+const TestNotificationMessage = "Test notification from breckr. If you can read this, alerts are working."
 
-// NotifierTransport names the delivery channel in /api/health. Telegram is the
-// only one, but the dashboard should not have that hardcoded.
-const NotifierTransport = "telegram"
+// TestNotificationSubject is its subject line, for transports that need one.
+const TestNotificationSubject = "breckr test notification"
 
 // --- Browser ----------------------------------------------------------------
 

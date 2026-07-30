@@ -20,21 +20,30 @@ type Browser interface {
 }
 
 type Runner struct {
-	tasks    store.TaskStore
-	runs     store.RunStore
-	browser  Browser
-	notifier notifier.Notifier
-	logger   *log.Logger
+	tasks      store.TaskStore
+	runs       store.RunStore
+	channels   store.ChannelStore
+	browser    Browser
+	dispatcher notifier.Dispatcher
+	logger     *log.Logger
 }
 
 func New(
 	tasks store.TaskStore,
 	runs store.RunStore,
+	channels store.ChannelStore,
 	browser Browser,
-	notify notifier.Notifier,
+	dispatcher notifier.Dispatcher,
 	logger *log.Logger,
 ) *Runner {
-	return &Runner{tasks: tasks, runs: runs, browser: browser, notifier: notify, logger: logger}
+	return &Runner{
+		tasks:      tasks,
+		runs:       runs,
+		channels:   channels,
+		browser:    browser,
+		dispatcher: dispatcher,
+		logger:     logger,
+	}
 }
 
 // RunTask executes one task and records the outcome.
@@ -135,19 +144,29 @@ func (r *Runner) RunTask(
 			notifyMessage = definition.Notify(result)
 		}
 
-		outcome = r.notifier.Send(ctx, notifyMessage)
+		fanout := r.dispatcher.DispatchTask(ctx, definition.ID, notifier.Message{
+			Subject: fmt.Sprintf("breckr: %s", definition.Name),
+			Body:    notifyMessage,
+		})
+		outcome = fanout.Aggregate
 		notified = outcome.Delivered
+
+		// Written before the run row so a failure here cannot leave the
+		// aggregate claiming a breakdown that was never stored.
+		r.recordAttempts(runID, fanout, notifyMessage)
 
 		switch {
 		case outcome.Delivered:
+			// One channel getting through is enough. Retrying for the sake of a
+			// failed channel would re-alert the ones that already worked.
 			r.logError(r.tasks.MarkTaskNotified(definition.ID), "mark task notified")
 		case outcome.Reason == types.NotificationDisabled:
 			// Nothing owed, so arm as if sent -- dedup then behaves the same
-			// whether or not Telegram is configured.
+			// whether or not any channel is attached.
 			r.logError(r.tasks.SetTaskConditionMet(definition.ID, true), "arm task")
 		}
-		// Reason "error": deliberately leave the state disarmed so the next run
-		// retries the alert rather than swallowing it forever.
+		// Reason "error": every channel failed, so deliberately leave the state
+		// disarmed and let the next run retry rather than swallowing the alert.
 
 	case !conditionMet && wasMet:
 		// Condition cleared -- re-arm so the next false -> true transition fires.
@@ -184,6 +203,24 @@ func notifyReason(reason types.NotificationReason) string {
 		return "none"
 	}
 	return string(reason)
+}
+
+// recordAttempts stores the per-channel breakdown behind the aggregate.
+//
+// The message is stamped onto every attempt rather than held once on the run,
+// because "what did this channel actually receive" is the question a failed
+// delivery raises, and truncation makes the answer differ per channel.
+func (r *Runner) recordAttempts(runID int64, fanout notifier.Fanout, message string) {
+	attempts := fanout.Attempts()
+	if len(attempts) == 0 {
+		return
+	}
+
+	for i := range attempts {
+		attempts[i].Message = message
+	}
+
+	r.logError(r.channels.RecordAttempts(runID, attempts), "record notification attempts")
 }
 
 func (r *Runner) complete(input store.CompleteRunInput) {
