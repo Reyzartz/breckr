@@ -6,7 +6,10 @@
 // depends on both spellings exactly as they are.
 package types
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // RunStatus is the terminal state of a run. "running" is written before
 // execution starts.
@@ -94,6 +97,72 @@ const (
 	OpChanged     CompareOperator = "changed"
 )
 
+// MatchMode says how a task's conditions combine into the single true/false
+// that drives the alert.
+//
+// One mode for the whole task rather than a boolean tree: "all of these" and
+// "any of these" cover what a monitor actually needs, and a flat list is a
+// thing you can read off the dashboard at a glance -- which matters more here
+// than expressiveness, because the failure this app exists to avoid is a
+// condition nobody realized could never fire.
+type MatchMode string
+
+const (
+	// MatchAll alerts when every condition is met.
+	MatchAll MatchMode = "all"
+	// MatchAny alerts when at least one condition is met.
+	MatchAny MatchMode = "any"
+)
+
+var MatchModes = []MatchMode{MatchAll, MatchAny}
+
+// DefaultMatchMode is what a spec means when it says nothing -- which is every
+// spec stored before conditions became a list, each of which had exactly one.
+const DefaultMatchMode = MatchAll
+
+func IsMatchMode(value string) bool {
+	for _, mode := range MatchModes {
+		if string(mode) == value {
+			return true
+		}
+	}
+	return false
+}
+
+// Condition is one thing to watch on the page: what to select, what to pull out
+// of it, and what would make that interesting.
+//
+// Every condition in a task reads the same page -- the URL lives on the spec.
+// Watching two sites is two tasks, which keeps one run to one navigation and
+// keeps a failure attributable to a single page.
+type Condition struct {
+	Selector string `json:"selector"`
+	// Waited for before extraction. Defaults to Selector when omitted.
+	WaitForSelector string      `json:"waitForSelector,omitempty"`
+	Extract         ExtractKind `json:"extract"`
+	// Required when Extract is "attribute", ignored otherwise.
+	Attribute string          `json:"attribute,omitempty"`
+	Operator  CompareOperator `json:"operator"`
+	// Required except for "is_true", "is_false" and "changed".
+	Value string `json:"value,omitempty"`
+}
+
+// Key identifies a condition by what it extracts rather than by where it sits
+// in the list.
+//
+// The `changed` operator compares against the last successful run, so it needs
+// to find *its own* previous value in a result recorded under an older version
+// of the spec. Keying on position would silently compare against a sibling the
+// moment a condition is reordered or one is inserted above it; keying on the
+// extraction means a genuinely edited condition simply finds nothing, which
+// reads as "no change" and costs at most one skipped alert.
+//
+// Quoted rather than joined raw, so a selector containing the separator cannot
+// collide with a different condition.
+func (c Condition) Key() string {
+	return fmt.Sprintf("%q|%s|%q", c.Selector, c.Extract, c.Attribute)
+}
+
 // TaskSpec is a task's behavior, declared rather than coded.
 //
 // Interpreted at run time by the executor, so nothing here is ever evaluated as
@@ -101,29 +170,109 @@ const (
 type TaskSpec struct {
 	// http/https only; it is handed straight to a real browser.
 	URL string `json:"url"`
-	// Waited for before extraction. Defaults to Selector when omitted.
-	WaitForSelector string      `json:"waitForSelector,omitempty"`
-	Selector        string      `json:"selector"`
-	Extract         ExtractKind `json:"extract"`
-	// Required when Extract is "attribute", ignored otherwise.
-	Attribute string          `json:"attribute,omitempty"`
-	Operator  CompareOperator `json:"operator"`
-	// Required except for "is_true", "is_false" and "changed".
-	Value string `json:"value,omitempty"`
-	// Alert body. Supports {{value}}, {{raw}}, {{url}} and {{name}}.
+	// How Conditions combine. Empty means MatchAll.
+	Match MatchMode `json:"match,omitempty"`
+	// At least one, at most MaxConditions. Order is the order they are checked
+	// and the order {{value1}}, {{value2}} … refer to.
+	Conditions []Condition `json:"conditions"`
+	// Alert body. Supports {{value}}, {{raw}}, {{url}}, {{name}} and the indexed
+	// {{value1}} / {{raw1}} … one pair per condition.
 	Message string `json:"message,omitempty"`
+}
+
+// UnmarshalJSON accepts the single-condition shape that came before Conditions
+// was a list, and hoists it into the list.
+//
+// This is the only migration there is, and it is deliberately not a SQL one:
+// every spec is an opaque JSON blob in one column, so rewriting them in place
+// would mean a migration that parses and re-encodes user data with no way to
+// undo it. Doing it on decode instead makes both readers total -- the stored
+// row and the request from a client that has not been updated take the same
+// path -- and a hoisted spec is written back in the new shape the next time it
+// is saved.
+func (s *TaskSpec) UnmarshalJSON(data []byte) error {
+	// The union of both shapes. Not an alias of TaskSpec, because the fields
+	// being hoisted are no longer on it.
+	var wire struct {
+		URL        string      `json:"url"`
+		Match      MatchMode   `json:"match"`
+		Conditions []Condition `json:"conditions"`
+		Message    string      `json:"message"`
+
+		// The pre-list shape.
+		Selector        string          `json:"selector"`
+		WaitForSelector string          `json:"waitForSelector"`
+		Extract         ExtractKind     `json:"extract"`
+		Attribute       string          `json:"attribute"`
+		Operator        CompareOperator `json:"operator"`
+		Value           string          `json:"value"`
+	}
+
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+
+	conditions := wire.Conditions
+
+	// Hoisted on any sign of the old shape rather than only on a usable one, so
+	// a legacy request with a blank selector still lands as one condition and is
+	// rejected with a message naming that condition's field -- not as "a task
+	// needs at least one condition", which would say nothing about what to fix.
+	if len(conditions) == 0 &&
+		(wire.Selector != "" || wire.Extract != "" || wire.Operator != "") {
+		conditions = []Condition{{
+			Selector:        wire.Selector,
+			WaitForSelector: wire.WaitForSelector,
+			Extract:         wire.Extract,
+			Attribute:       wire.Attribute,
+			Operator:        wire.Operator,
+			Value:           wire.Value,
+		}}
+	}
+
+	match := wire.Match
+	if match == "" {
+		match = DefaultMatchMode
+	}
+
+	*s = TaskSpec{
+		URL:        wire.URL,
+		Match:      match,
+		Conditions: conditions,
+		Message:    wire.Message,
+	}
+	return nil
+}
+
+// CheckResult is what one condition saw on one run.
+type CheckResult struct {
+	// Identifies the condition that produced it -- see Condition.Key.
+	Key string `json:"key"`
+	// The typed extraction: number, string, or boolean depending on the kind.
+	Value any `json:"value"`
+	// The untouched text the value was derived from.
+	Raw string `json:"raw"`
+	// Whether this condition's operator matched. Written by the condition step
+	// rather than the extraction step, so it is only meaningful once the run has
+	// been evaluated.
+	Met bool `json:"met"`
 }
 
 // TaskResult is what a spec-driven run returns, and what is stored as the run's
 // result.
 type TaskResult struct {
-	// The typed extraction: number, string, or boolean depending on the kind.
+	// The first condition's extraction, repeated here so {{value}} keeps meaning
+	// what it always meant and so a result stored before conditions became a
+	// list still reads back the same way.
 	Value any `json:"value"`
-	// The untouched text the value was derived from.
+	// The first condition's untouched text, for the same reason.
 	Raw string `json:"raw"`
 	URL string `json:"url"`
 	// ISO-8601.
 	CheckedAt string `json:"checkedAt"`
+	// One entry per condition, in spec order. Absent on a result stored before
+	// conditions became a list.
+	Checks []CheckResult `json:"checks,omitempty"`
 }
 
 // --- Schedules --------------------------------------------------------------

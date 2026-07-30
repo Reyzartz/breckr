@@ -61,8 +61,11 @@ func storeTask(t *testing.T, tasks *store.SQLiteTaskStore, id string, enabled bo
 		Name:     "Task " + id,
 		CronExpr: "*/15 * * * *",
 		Spec: &types.TaskSpec{
-			URL: "https://example.com", Selector: ".price",
-			Extract: types.ExtractNumber, Operator: types.OpLT, Value: "100",
+			URL: "https://example.com", Match: types.MatchAll,
+			Conditions: []types.Condition{{
+				Selector: ".price", Extract: types.ExtractNumber,
+				Operator: types.OpLT, Value: "100",
+			}},
 		},
 		Enabled: enabled,
 	})

@@ -37,11 +37,14 @@ func newTestDB(t *testing.T) *sql.DB {
 
 func sampleSpec() *types.TaskSpec {
 	return &types.TaskSpec{
-		URL:      "https://example.com",
-		Selector: ".price",
-		Extract:  types.ExtractNumber,
-		Operator: types.OpLT,
-		Value:    "100",
+		URL:   "https://example.com",
+		Match: types.MatchAll,
+		Conditions: []types.Condition{{
+			Selector: ".price",
+			Extract:  types.ExtractNumber,
+			Operator: types.OpLT,
+			Value:    "100",
+		}},
 	}
 }
 
@@ -71,7 +74,10 @@ func TestTaskStoreRoundTripsASpec(t *testing.T) {
 	if created.Spec == nil {
 		t.Fatal("spec came back nil")
 	}
-	if created.Spec.Selector != ".price" || created.Spec.Value != "100" {
+	if len(created.Spec.Conditions) != 1 {
+		t.Fatalf("conditions did not round trip: %+v", created.Spec)
+	}
+	if created.Spec.Conditions[0].Selector != ".price" || created.Spec.Conditions[0].Value != "100" {
 		t.Fatalf("spec did not round trip: %+v", created.Spec)
 	}
 	if !created.Enabled || created.ConditionMet {
@@ -106,7 +112,8 @@ func TestTaskStorePatchesOnlyWhatIsPresent(t *testing.T) {
 	if updated.CronExpr != "*/15 * * * *" {
 		t.Fatalf("cron_expr should be untouched, got %q", updated.CronExpr)
 	}
-	if updated.Spec == nil || updated.Spec.Selector != ".price" {
+	if updated.Spec == nil || len(updated.Spec.Conditions) != 1 ||
+		updated.Spec.Conditions[0].Selector != ".price" {
 		t.Fatalf("spec should be untouched, got %+v", updated.Spec)
 	}
 }
@@ -135,7 +142,7 @@ func TestEditingTheSpecReArmsButRenamingDoesNot(t *testing.T) {
 	}
 
 	newSpec := sampleSpec()
-	newSpec.Value = "50"
+	newSpec.Conditions[0].Value = "50"
 	afterEdit, err := tasks.UpdateTask("price-check", UpdateTaskInput{Spec: newSpec})
 	if err != nil {
 		t.Fatalf("UpdateTask: %v", err)
@@ -189,7 +196,7 @@ func TestTheNotifyModeSurvivesASpecEditAndDoesNotReArm(t *testing.T) {
 	}
 
 	newSpec := sampleSpec()
-	newSpec.Value = "50"
+	newSpec.Conditions[0].Value = "50"
 	afterEdit, err := tasks.UpdateTask("price-check", UpdateTaskInput{Spec: newSpec})
 	if err != nil {
 		t.Fatalf("UpdateTask: %v", err)

@@ -155,8 +155,11 @@ func (h *harness) task(t *testing.T, value *float64) *types.ResolvedTask {
 		Name:     "Price check",
 		CronExpr: "*/1 * * * *",
 		Spec: &types.TaskSpec{
-			URL: "https://example.com", Selector: "#value",
-			Extract: types.ExtractNumber, Operator: types.OpLT, Value: "100",
+			URL: "https://example.com", Match: types.MatchAll,
+			Conditions: []types.Condition{{
+				Selector: "#value", Extract: types.ExtractNumber,
+				Operator: types.OpLT, Value: "100",
+			}},
 		},
 		Enabled: true,
 	}); err != nil {

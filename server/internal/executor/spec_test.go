@@ -15,11 +15,13 @@ dashboard can point at it.
 
 func validSpec() *types.TaskSpec {
 	return &types.TaskSpec{
-		URL:      "https://example.com/prices",
-		Selector: ".price",
-		Extract:  types.ExtractNumber,
-		Operator: types.OpLT,
-		Value:    "100",
+		URL: "https://example.com/prices",
+		Conditions: []types.Condition{{
+			Selector: ".price",
+			Extract:  types.ExtractNumber,
+			Operator: types.OpLT,
+			Value:    "100",
+		}},
 	}
 }
 
@@ -30,6 +32,14 @@ func with(mutate func(s *types.TaskSpec)) *types.TaskSpec {
 	return spec
 }
 
+// withCondition applies overrides to the valid spec's only condition, which is
+// where most of the rejection table lives.
+func withCondition(mutate func(c *types.Condition)) *types.TaskSpec {
+	spec := validSpec()
+	mutate(&spec.Conditions[0])
+	return spec
+}
+
 func TestValidateSpecAcceptsAndNormalizes(t *testing.T) {
 	t.Run("a minimal spec", func(t *testing.T) {
 		spec, err := ValidateSpec(validSpec())
@@ -37,24 +47,40 @@ func TestValidateSpecAcceptsAndNormalizes(t *testing.T) {
 			t.Fatalf("ValidateSpec: %v", err)
 		}
 
-		if spec.Selector != ".price" || spec.Operator != types.OpLT {
+		if len(spec.Conditions) != 1 {
 			t.Fatalf("unexpected spec: %+v", spec)
 		}
-		if spec.WaitForSelector != "" || spec.Message != "" {
+		if spec.Conditions[0].Selector != ".price" || spec.Conditions[0].Operator != types.OpLT {
+			t.Fatalf("unexpected spec: %+v", spec)
+		}
+		if spec.Conditions[0].WaitForSelector != "" || spec.Message != "" {
 			t.Fatalf("absent optionals must stay absent: %+v", spec)
+		}
+	})
+
+	t.Run("an unstated match mode defaults to all", func(t *testing.T) {
+		// Every spec stored before conditions became a list says nothing, and
+		// each had exactly one condition -- so "all" has to be what silence means.
+		spec, err := ValidateSpec(with(func(s *types.TaskSpec) { s.Match = "" }))
+		if err != nil {
+			t.Fatalf("ValidateSpec: %v", err)
+		}
+
+		if spec.Match != types.MatchAll {
+			t.Fatalf("match = %q, want %q", spec.Match, types.MatchAll)
 		}
 	})
 
 	t.Run("blank optionals are dropped rather than stored", func(t *testing.T) {
 		spec, err := ValidateSpec(with(func(s *types.TaskSpec) {
-			s.WaitForSelector = "  "
+			s.Conditions[0].WaitForSelector = "  "
 			s.Message = ""
 		}))
 		if err != nil {
 			t.Fatalf("ValidateSpec: %v", err)
 		}
 
-		if spec.WaitForSelector != "" || spec.Message != "" {
+		if spec.Conditions[0].WaitForSelector != "" || spec.Message != "" {
 			t.Fatalf("blank optionals should collapse away: %+v", spec)
 		}
 	})
@@ -63,35 +89,50 @@ func TestValidateSpecAcceptsAndNormalizes(t *testing.T) {
 		// Switching `extract` in the form leaves the old attribute in the
 		// payload; storing it would be misleading noise in a spec that never
 		// reads it.
-		spec, err := ValidateSpec(with(func(s *types.TaskSpec) { s.Attribute = "href" }))
+		spec, err := ValidateSpec(withCondition(func(c *types.Condition) { c.Attribute = "href" }))
 		if err != nil {
 			t.Fatalf("ValidateSpec: %v", err)
 		}
 
-		if spec.Attribute != "" {
-			t.Fatalf("attribute should be dropped, got %q", spec.Attribute)
+		if spec.Conditions[0].Attribute != "" {
+			t.Fatalf("attribute should be dropped, got %q", spec.Conditions[0].Attribute)
 		}
 	})
 
 	t.Run("value-less operators need no value", func(t *testing.T) {
 		spec, err := ValidateSpec(&types.TaskSpec{
-			URL:      "https://example.com",
-			Selector: "#banner",
-			Extract:  types.ExtractExists,
-			Operator: types.OpIsTrue,
+			URL: "https://example.com",
+			Conditions: []types.Condition{{
+				Selector: "#banner",
+				Extract:  types.ExtractExists,
+				Operator: types.OpIsTrue,
+			}},
 		})
 		if err != nil {
 			t.Fatalf("ValidateSpec: %v", err)
 		}
 
-		if spec.Value != "" {
-			t.Fatalf("value should stay empty, got %q", spec.Value)
+		if spec.Conditions[0].Value != "" {
+			t.Fatalf("value should stay empty, got %q", spec.Conditions[0].Value)
 		}
 	})
 
 	t.Run("every documented placeholder is accepted", func(t *testing.T) {
 		_, err := ValidateSpec(with(func(s *types.TaskSpec) {
 			s.Message = "{{name}}: {{value}} (raw {{raw}}) at {{url}}"
+		}))
+		if err != nil {
+			t.Fatalf("ValidateSpec: %v", err)
+		}
+	})
+
+	t.Run("an indexed placeholder within range is accepted", func(t *testing.T) {
+		_, err := ValidateSpec(with(func(s *types.TaskSpec) {
+			s.Conditions = append(s.Conditions, types.Condition{
+				Selector: ".stock", Extract: types.ExtractText,
+				Operator: types.OpEq, Value: "In stock",
+			})
+			s.Message = "{{value1}} / {{raw2}}"
 		}))
 		if err != nil {
 			t.Fatalf("ValidateSpec: %v", err)
@@ -129,46 +170,81 @@ func TestValidateSpecRejections(t *testing.T) {
 		},
 		{
 			"a missing selector",
-			with(func(s *types.TaskSpec) { s.Selector = "" }),
-			"selector", "`selector` must be",
+			withCondition(func(c *types.Condition) { c.Selector = "" }),
+			"conditions[0].selector", "`selector` must be",
 		},
 		{
 			"an unknown extract kind",
-			with(func(s *types.TaskSpec) { s.Extract = "innerHTML" }),
-			"extract", "`extract` must be one of",
+			withCondition(func(c *types.Condition) { c.Extract = "innerHTML" }),
+			"conditions[0].extract", "`extract` must be one of",
 		},
 		{
 			"an operator that cannot apply to the kind",
-			with(func(s *types.TaskSpec) {
-				s.Extract = types.ExtractExists
-				s.Operator = types.OpGT
+			withCondition(func(c *types.Condition) {
+				c.Extract = types.ExtractExists
+				c.Operator = types.OpGT
 			}),
-			"operator", `cannot be used with extract "exists"`,
+			"conditions[0].operator", `cannot be used with extract "exists"`,
 		},
 		{
 			"the attribute kind without an attribute",
-			with(func(s *types.TaskSpec) {
-				s.Extract = types.ExtractAttribute
-				s.Operator = types.OpEq
-				s.Value = "x"
-				s.Attribute = ""
+			withCondition(func(c *types.Condition) {
+				c.Extract = types.ExtractAttribute
+				c.Operator = types.OpEq
+				c.Value = "x"
+				c.Attribute = ""
 			}),
-			"attribute", "`attribute` is required",
+			"conditions[0].attribute", "`attribute` is required",
 		},
 		{
 			"a missing value for an operator that needs one",
-			with(func(s *types.TaskSpec) { s.Value = "" }),
-			"value", "`value` is required for operator \"lt\"",
+			withCondition(func(c *types.Condition) { c.Value = "" }),
+			"conditions[0].value", "`value` is required for operator \"lt\"",
 		},
 		{
 			"a non-numeric value on a numeric kind",
-			with(func(s *types.TaskSpec) { s.Value = "cheap" }),
-			"value", "`value` must be a number when extract is \"number\"",
+			withCondition(func(c *types.Condition) { c.Value = "cheap" }),
+			"conditions[0].value", "`value` must be a number when extract is \"number\"",
 		},
 		{
 			"an unknown message placeholder",
 			with(func(s *types.TaskSpec) { s.Message = "Price is {{prive}}" }),
 			"message", "unknown placeholder {{prive}}",
+		},
+		{
+			"no conditions at all",
+			with(func(s *types.TaskSpec) { s.Conditions = nil }),
+			"conditions", "at least one condition",
+		},
+		{
+			"more conditions than the cap allows",
+			with(func(s *types.TaskSpec) {
+				for len(s.Conditions) <= types.MaxConditions {
+					s.Conditions = append(s.Conditions, s.Conditions[0])
+				}
+			}),
+			"conditions", "at most 10 conditions",
+		},
+		{
+			"an unknown match mode",
+			with(func(s *types.TaskSpec) { s.Match = "either" }),
+			"match", "`match` must be one of",
+		},
+		{
+			"an indexed placeholder past the last condition",
+			with(func(s *types.TaskSpec) { s.Message = "Price is {{value2}}" }),
+			"message", "the task has only 1 condition",
+		},
+		{
+			// The second condition is the broken one, and the field has to say so
+			// -- the first is the one row you can be sure is fine.
+			"a broken condition names its own position",
+			with(func(s *types.TaskSpec) {
+				s.Conditions = append(s.Conditions, types.Condition{
+					Selector: ".stock", Extract: types.ExtractText, Operator: types.OpEq,
+				})
+			}),
+			"conditions[1].value", "`value` is required for operator \"eq\"",
 		},
 	}
 

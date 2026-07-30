@@ -148,8 +148,11 @@ func (h *liveHarness) task(t *testing.T, channelIDs []string) (*types.ResolvedTa
 	if _, err := h.tasks.CreateTask(store.CreateTaskInput{
 		ID: id, Name: "Price check", CronExpr: "*/1 * * * *",
 		Spec: &types.TaskSpec{
-			URL: "https://example.com", Selector: "#value",
-			Extract: types.ExtractNumber, Operator: types.OpLT, Value: "100",
+			URL: "https://example.com", Match: types.MatchAll,
+			Conditions: []types.Condition{{
+				Selector: "#value", Extract: types.ExtractNumber,
+				Operator: types.OpLT, Value: "100",
+			}},
 		},
 		Enabled:    true,
 		ChannelIDs: channelIDs,

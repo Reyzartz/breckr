@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Button,
@@ -14,8 +14,7 @@ import {
 import { FlaskConical, Plus, SquarePen } from "lucide-react";
 import type {
   Channel,
-  CompareOperator,
-  ExtractKind,
+  MatchMode,
   NotifyMode,
   Schedule,
   TaskSpec,
@@ -28,15 +27,21 @@ import {
   DEFAULT_NOTIFY_MODE,
   DEFAULT_SCHEDULE,
   DEFAULT_SPEC,
-  EXTRACT_OPTIONS,
+  MATCH_MODE_OPTIONS,
+  MAX_CONDITIONS,
   NOTIFY_MODE_HINTS,
   NOTIFY_MODE_OPTIONS,
-  OPERATORS_BY_KIND,
-  OPERATOR_LABELS,
-  VALUELESS_OPERATORS,
 } from "../constants/index.ts";
 import { slugify } from "../utils/format.ts";
 import { ScheduleField, type ScheduleFields } from "./ScheduleField.tsx";
+import {
+  BLANK_CONDITION,
+  ConditionField,
+  conditionFieldName,
+  toCondition,
+  toConditionFields,
+  type ConditionFields,
+} from "./ConditionField.tsx";
 import { ChannelPicker } from "./ChannelPicker.tsx";
 
 interface TaskFormModalProps {
@@ -72,12 +77,9 @@ interface FormState extends ScheduleFields {
   id: string;
   name: string;
   url: string;
-  selector: string;
-  waitForSelector: string;
-  extract: ExtractKind;
-  attribute: string;
-  operator: CompareOperator;
-  value: string;
+  match: MatchMode;
+  /** One entry per condition, in the order they are checked. */
+  conditions: ConditionFields[];
   message: string;
   notifyMode: NotifyMode;
 }
@@ -188,12 +190,10 @@ function toFormState(task: TaskWithStatus | null): FormState {
     name: task?.name ?? "",
     ...toScheduleFields(task?.schedule ?? DEFAULT_SCHEDULE),
     url: spec.url,
-    selector: spec.selector,
-    waitForSelector: spec.waitForSelector ?? "",
-    extract: spec.extract,
-    attribute: spec.attribute ?? "",
-    operator: spec.operator,
-    value: spec.value ?? "",
+    match: spec.match ?? "all",
+    // A task stored before conditions became a list has already been hoisted
+    // into one by the server, so there is only one shape to read here.
+    conditions: spec.conditions.map(toConditionFields),
     message: spec.message ?? "",
     // Not part of the spec: it is alert policy, and it survives a spec edit.
     notifyMode: task?.notify_mode ?? DEFAULT_NOTIFY_MODE,
@@ -204,14 +204,8 @@ function toFormState(task: TaskWithStatus | null): FormState {
 function toSpec(form: FormState): TaskSpec {
   return {
     url: form.url.trim(),
-    selector: form.selector.trim(),
-    extract: form.extract,
-    operator: form.operator,
-    ...(form.waitForSelector.trim()
-      ? { waitForSelector: form.waitForSelector.trim() }
-      : {}),
-    ...(form.extract === "attribute" ? { attribute: form.attribute.trim() } : {}),
-    ...(VALUELESS_OPERATORS.includes(form.operator) ? {} : { value: form.value.trim() }),
+    match: form.match,
+    conditions: form.conditions.map(toCondition),
     ...(form.message.trim() ? { message: form.message.trim() } : {}),
   };
 }
@@ -283,9 +277,6 @@ export function TaskFormModal({
     setIdTouched(task !== null);
   }, [isOpen, task]);
 
-  const operators = OPERATORS_BY_KIND[form.extract];
-  const needsValue = !VALUELESS_OPERATORS.includes(form.operator);
-
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
     setFieldError((current) => (current?.field === key ? null : current));
@@ -330,20 +321,50 @@ export function TaskFormModal({
     setFieldError(null);
   };
 
-  /** Switching kind can strand an operator the new kind does not allow. */
-  const handleExtractChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    const extract = event.target.value as ExtractKind;
-    setForm((current) => {
-      const allowed = OPERATORS_BY_KIND[extract];
-      return {
-        ...current,
-        extract,
-        operator: allowed.includes(current.operator)
-          ? current.operator
-          : (allowed[0] as CompareOperator),
-      };
-    });
-    setFieldError(null);
+  /**
+   * Patch one condition.
+   *
+   * The row owns several fields at once — switching the extraction can strand
+   * an operator the new kind does not allow — so it sends a patch rather than a
+   * single value, the same way the schedule builder does.
+   */
+  const patchCondition = (index: number, patch: Partial<ConditionFields>) => {
+    setForm((current) => ({
+      ...current,
+      conditions: current.conditions.map((condition, at) =>
+        at === index ? { ...condition, ...patch } : condition
+      ),
+    }));
+    setFieldError((current) =>
+      current?.field.startsWith(`conditions[${index}]`) ? null : current
+    );
+  };
+
+  const addCondition = () => {
+    setForm((current) => ({
+      ...current,
+      conditions: [...current.conditions, { ...BLANK_CONDITION }],
+    }));
+    setFieldError((current) => (current?.field === "conditions" ? null : current));
+  };
+
+  /**
+   * Drop one condition.
+   *
+   * Any message placeholder past the new last condition would be rejected on
+   * save, but the error names `message` and says how many conditions there are
+   * — which is enough to act on, and beats rewriting a template the user wrote.
+   */
+  const removeCondition = (index: number) => {
+    setForm((current) => ({
+      ...current,
+      conditions: current.conditions.filter((_, at) => at !== index),
+    }));
+    // Positions shift, so any complaint about a condition now points at the
+    // wrong row.
+    setFieldError((current) =>
+      current?.field.startsWith("conditions") ? null : current
+    );
   };
 
   const handleNotifyModeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
@@ -408,16 +429,6 @@ export function TaskFormModal({
     }
   };
 
-  const operatorOptions = useMemo(
-    () =>
-      operators.map((operator) => (
-        <option key={operator} value={operator}>
-          {OPERATOR_LABELS[operator]}
-        </option>
-      )),
-    [operators]
-  );
-
   return (
     <Modal isOpen={isOpen} onClose={onClose} maxWidth="lg">
       <ModalHeader
@@ -464,59 +475,54 @@ export function TaskFormModal({
             fullWidth
           />
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Input
-              label="CSS selector"
-              {...bind("selector")}
-              placeholder=".price"
-              fullWidth
-            />
-            <Input
-              label="Wait for selector (optional)"
-              {...bind("waitForSelector")}
-              info="Defaults to the selector above."
-              fullWidth
-            />
-          </div>
-
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid gap-3">
             <Select
-              label="Extract"
-              value={form.extract}
-              onChange={handleExtractChange}
-              error={errorFor("extract")}
+              label="Alert when"
+              {...bind("match")}
+              error={errorFor("match")}
+              info={
+                form.conditions.length > 1
+                  ? undefined
+                  : "Applies once there is more than one condition."
+              }
               fullWidth
             >
-              {EXTRACT_OPTIONS.map((option) => (
+              {MATCH_MODE_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
               ))}
             </Select>
 
-            {form.extract === "attribute" && (
-              <Input
-                label="Attribute name"
-                {...bind("attribute")}
-                placeholder="href"
-                fullWidth
+            {form.conditions.map((condition, index) => (
+              <ConditionField
+                key={index}
+                index={index}
+                value={condition}
+                onChange={(patch) => patchCondition(index, patch)}
+                // A task needs at least one condition, so the last one cannot go.
+                onRemove={
+                  form.conditions.length > 1 ? () => removeCondition(index) : undefined
+                }
+                errorFor={(field) => errorFor(conditionFieldName(index, field))}
               />
-            )}
-          </div>
+            ))}
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Select label="Alert when it" {...bind("operator")} fullWidth>
-              {operatorOptions}
-            </Select>
-
-            {needsValue && (
-              <Input
-                label="Value"
-                {...bind("value")}
-                placeholder={form.extract === "number" ? "100" : "In stock"}
-                fullWidth
-              />
+            {errorFor("conditions") && (
+              <Alert variant="error">{errorFor("conditions")}</Alert>
             )}
+
+            <div>
+              <Button
+                variant="outlined"
+                size="sm"
+                icon={Plus}
+                onClick={addCondition}
+                disabled={form.conditions.length >= MAX_CONDITIONS}
+              >
+                Add condition
+              </Button>
+            </div>
           </div>
 
           <ChannelPicker
@@ -558,7 +564,15 @@ export function TaskFormModal({
           />
           <Text variant="caption" color="muted">
             Placeholders: <code>{"{{value}}"}</code> <code>{"{{raw}}"}</code>{" "}
-            <code>{"{{url}}"}</code> <code>{"{{name}}"}</code>.
+            <code>{"{{url}}"}</code> <code>{"{{name}}"}</code>
+            {form.conditions.length > 1 && (
+              <>
+                . Use <code>{"{{value1}}"}</code> …{" "}
+                <code>{`{{value${form.conditions.length}}}`}</code> to name one
+                condition; <code>{"{{value}}"}</code> is the first
+              </>
+            )}
+            .
           </Text>
 
           {formError && <Alert variant="error">{formError}</Alert>}
@@ -566,10 +580,17 @@ export function TaskFormModal({
           {testResult?.ok && (
             <Alert variant={testResult.conditionMet ? "warning" : "success"}>
               <div className="grid gap-1">
-                <div>
-                  Extracted <code>{JSON.stringify(testResult.result?.value)}</code> from{" "}
-                  <code>{form.selector}</code>.
-                </div>
+                {/* Per condition, so a task watching several says which
+                    selector produced which value rather than only the first. */}
+                {(testResult.result?.checks ?? []).map((check, index) => (
+                  <div key={check.key}>
+                    Extracted <code>{JSON.stringify(check.value)}</code> from{" "}
+                    <code>{form.conditions[index]?.selector}</code>
+                    {form.conditions.length > 1 &&
+                      ` — ${check.met ? "matches" : "does not match"}`}
+                    .
+                  </div>
+                ))}
                 <div>
                   {testResult.conditionMet
                     ? `Condition matches — it would alert: "${testResult.message ?? ""}"`

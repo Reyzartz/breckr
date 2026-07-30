@@ -126,8 +126,25 @@ var ValuelessOperators = []CompareOperator{OpIsTrue, OpIsFalse, OpChanged}
 // NumericKinds are the kinds whose spec.Value must parse as a finite number.
 var NumericKinds = []ExtractKind{ExtractNumber, ExtractCount}
 
-// MessagePlaceholders are the placeholders a message template may reference.
+// MaxConditions caps how many conditions one task can carry.
+//
+// A run waits for each selector in turn, so the real ceiling is on how long a
+// single run can take before the run timeout does the capping for us -- badly,
+// as a generic timeout that names no selector. A task that needs more than this
+// is two tasks.
+const MaxConditions = 10
+
+// MessagePlaceholders are the unindexed placeholders a message template may
+// reference. {{value}} and {{raw}} are the first condition's.
 var MessagePlaceholders = []string{"value", "raw", "url", "name"}
 
 // MessagePlaceholderPattern captures {{name}}, tolerating inner whitespace.
 var MessagePlaceholderPattern = regexp.MustCompile(`\{\{\s*(\w+)\s*\}\}`)
+
+// IndexedPlaceholderPattern splits {{value2}} into "value" and "2".
+//
+// Indexed placeholders are validated against how many conditions the task
+// actually has, so {{value3}} on a two-condition task is a save-time error
+// rather than a literal "{{value3}}" arriving in the one message you most
+// wanted to be right.
+var IndexedPlaceholderPattern = regexp.MustCompile(`^(value|raw)([1-9][0-9]*)$`)
