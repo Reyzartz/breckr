@@ -34,9 +34,12 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o breckr-server ./main.go
 FROM alpine:3.22
 WORKDIR /app
 
-# ca-certificates is needed to reach Telegram over HTTPS. The healthcheck's wget
-# comes from busybox, which is already there.
-RUN apk add --no-cache ca-certificates
+# ca-certificates is needed to reach the notification transports over HTTPS and
+# SMTP over STARTTLS. tzdata is needed for
+# time.LoadLocation to resolve IANA zones like America/New_York -- alpine ships
+# neither by default. The healthcheck's wget comes from busybox, which is
+# already there.
+RUN apk add --no-cache ca-certificates tzdata
 
 COPY --from=server /build/breckr-server ./breckr-server
 COPY --from=client /build/dist ./client/dist

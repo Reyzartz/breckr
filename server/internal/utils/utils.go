@@ -4,15 +4,37 @@
 package utils
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/gorilla/schema"
 )
+
+// NewID mints an identifier for rows the user does not name themselves.
+//
+// Random rather than sequential because it appears in URLs: channel ids should
+// not let anyone count how many you have.
+func NewID() string {
+	raw := make([]byte, 16)
+	if _, err := rand.Read(raw); err != nil {
+		// crypto/rand does not fail in practice; a timestamp still yields a
+		// usable unique id if it ever does.
+		return strconv.FormatInt(time.Now().UnixNano(), 16)
+	}
+	return hex.EncodeToString(raw)
+}
+
+// Timestamp is the format every stored and reported time uses.
+func Timestamp() string {
+	return time.Now().UTC().Format(time.RFC3339Nano)
+}
 
 // Envelope is the shape of every JSON response body: {"data": ...} on success,
 // {"error": ..., "field": ...} on failure.

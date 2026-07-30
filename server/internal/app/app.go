@@ -11,6 +11,7 @@ import (
 	"breckr-server/internal/api"
 	"breckr-server/internal/browser"
 	"breckr-server/internal/config"
+	"breckr-server/internal/crypto"
 	"breckr-server/internal/executor"
 	"breckr-server/internal/middleware"
 	"breckr-server/internal/migrations"
@@ -22,16 +23,16 @@ import (
 )
 
 type Application struct {
-	Logger              *log.Logger
-	Database            *sql.DB
-	Registry            *scheduler.Registry
-	Runner              *runner.Runner
-	RunStore            store.RunStore
-	HealthHandler       *api.HealthHandler
-	TaskHandler         *api.TaskHandler
-	RunHandler          *api.RunHandler
-	NotificationHandler *api.NotificationHandler
-	LoggingMiddleware   *middleware.LoggingMiddleware
+	Logger            *log.Logger
+	Database          *sql.DB
+	Registry          *scheduler.Registry
+	Runner            *runner.Runner
+	RunStore          store.RunStore
+	HealthHandler     *api.HealthHandler
+	TaskHandler       *api.TaskHandler
+	RunHandler        *api.RunHandler
+	ChannelHandler    *api.ChannelHandler
+	LoggingMiddleware *middleware.LoggingMiddleware
 
 	cfg *config.Config
 }
@@ -46,20 +47,33 @@ func NewApplication(cfg *config.Config) (*Application, error) {
 		return nil, err
 	}
 
+	// Before any store, because the channel store cannot be built without it.
+	// Failing here rather than at first send means a missing or unreadable key
+	// file is a boot error, not a missed alert.
+	key, err := crypto.LoadOrCreateKey(cfg.Security.KeyFile)
+	if err != nil {
+		return nil, err
+	}
+	cipher, err := crypto.New(key)
+	if err != nil {
+		return nil, err
+	}
+
 	logger := log.New(os.Stdout, "", log.LstdFlags)
 
 	taskStore := store.NewSQLiteTaskStore(db)
 	runStore := store.NewSQLiteRunStore(db)
+	channelStore := store.NewSQLiteChannelStore(db, cipher)
 
 	browserPool := browser.NewPool(cfg)
-	telegram := notifier.NewTelegram(cfg.Telegram, logger)
+	dispatcher := notifier.NewDispatcher(channelStore, logger)
 
 	// The executor reaches run history only for the `changed` operator, through
 	// a one-method interface -- which is what keeps its operator table testable
 	// without a database.
 	taskExecutor := executor.New(runStore, cfg.Browser.DefaultTimeout)
 
-	taskRunner := runner.New(taskStore, runStore, browserPool, telegram, logger)
+	taskRunner := runner.New(taskStore, runStore, channelStore, browserPool, dispatcher, logger)
 	registry := scheduler.New(cfg, taskStore, taskExecutor, logger)
 
 	return &Application{
@@ -68,17 +82,17 @@ func NewApplication(cfg *config.Config) (*Application, error) {
 		Registry:      registry,
 		Runner:        taskRunner,
 		RunStore:      runStore,
-		HealthHandler: api.NewHealthHandler(cfg, browserPool, registry),
+		HealthHandler: api.NewHealthHandler(cfg, browserPool, registry, channelStore),
 		TaskHandler: api.NewTaskHandler(
-			logger, taskStore, runStore, registry, taskRunner,
+			logger, taskStore, runStore, channelStore, registry, taskRunner,
 			browserPool, cfg.Browser.DefaultTimeout,
 		),
-		RunHandler: api.NewRunHandler(logger, runStore),
-		// The same notifier instance the runner holds, so a test send exercises
-		// the delivery path a real alert takes rather than a parallel one.
-		NotificationHandler: api.NewNotificationHandler(logger, telegram, cfg),
-		LoggingMiddleware:   middleware.NewLoggingMiddleware(logger),
-		cfg:                 cfg,
+		RunHandler: api.NewRunHandler(logger, runStore, channelStore),
+		// The same dispatcher the runner holds, so a test send exercises the
+		// delivery path a real alert takes rather than a parallel one.
+		ChannelHandler:    api.NewChannelHandler(logger, channelStore, dispatcher),
+		LoggingMiddleware: middleware.NewLoggingMiddleware(logger),
+		cfg:               cfg,
 	}, nil
 }
 

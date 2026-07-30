@@ -13,10 +13,11 @@ import (
 type RunHandler struct {
 	logger   *log.Logger
 	runStore store.RunStore
+	channels store.ChannelStore
 }
 
-func NewRunHandler(logger *log.Logger, runStore store.RunStore) *RunHandler {
-	return &RunHandler{logger: logger, runStore: runStore}
+func NewRunHandler(logger *log.Logger, runStore store.RunStore, channels store.ChannelStore) *RunHandler {
+	return &RunHandler{logger: logger, runStore: runStore, channels: channels}
 }
 
 // clampLimit caps the page size so one request cannot pull the entire history.
@@ -92,6 +93,18 @@ func (rh *RunHandler) HandleGetRun(w http.ResponseWriter, r *http.Request) {
 	if run == nil {
 		utils.WriteError(w, http.StatusNotFound, "Run not found.", "")
 		return
+	}
+
+	// Only on the detail route: the list renders dozens of runs from one query,
+	// and a per-channel breakdown it does not show is not worth a query each.
+	//
+	// A failure here degrades to the aggregate the run already carries rather
+	// than losing the run itself.
+	attempts, err := rh.channels.ListAttempts(id)
+	if err != nil {
+		rh.logger.Printf("ERROR: ListAttempts for run %d: %v", id, err)
+	} else {
+		run.Attempts = attempts
 	}
 
 	utils.WriteJSONResponse(w, http.StatusOK, utils.Envelope{"data": run})

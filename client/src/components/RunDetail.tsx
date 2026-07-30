@@ -7,10 +7,16 @@ import {
   ModalHeader,
   Text,
 } from "brake-ui";
-import type { Run } from "../types/index.ts";
+import { useEffect, useState } from "react";
+import type { NotificationAttempt, Run } from "../types/index.ts";
+import { fetchRun } from "../apis/runs.api.ts";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { NotificationBadge } from "./NotificationBadge.tsx";
 import { absoluteTime, duration, prettyJson } from "../utils/format.ts";
+import {
+  CHANNEL_TYPE_LABEL,
+  NOTIFICATION_BADGE_VARIANT,
+} from "../constants/index.ts";
 
 interface RunDetailProps {
   run: Run | null;
@@ -18,6 +24,36 @@ interface RunDetailProps {
 }
 
 export function RunDetail({ run, onClose }: RunDetailProps) {
+  /**
+   * The per-channel breakdown, fetched on open.
+   *
+   * The run list does not carry attempts — one extra query per row would be paid
+   * on every poll to render a badge that does not show them. So the detail view
+   * asks for its own.
+   */
+  const [attempts, setAttempts] = useState<NotificationAttempt[] | null>(null);
+
+  useEffect(() => {
+    if (!run) return;
+
+    setAttempts(null);
+    let current = true;
+
+    void fetchRun(run.id)
+      .then((detailed) => {
+        if (current) setAttempts(detailed.attempts ?? []);
+      })
+      // A failed fetch degrades to the aggregate the run already carries rather
+      // than an error over a run that displays fine without it.
+      .catch(() => {
+        if (current) setAttempts([]);
+      });
+
+    return () => {
+      current = false;
+    };
+  }, [run]);
+
   if (!run) return null;
 
   return (
@@ -65,11 +101,47 @@ export function RunDetail({ run, onClose }: RunDetailProps) {
         */}
         {run.notification_status && (
           <Section title="Notification">
-            {run.notification_detail && (
+            {/*
+              With fan-out, the aggregate can only say "something got through".
+              Which channel failed is the question you actually have, so the
+              per-channel rows come first.
+            */}
+            {attempts && attempts.length > 0 && (
+              <div className="mb-2 grid gap-1">
+                {attempts.map((attempt) => (
+                  <div
+                    key={attempt.id}
+                    className="flex flex-wrap items-baseline gap-2"
+                  >
+                    <Badge variant={NOTIFICATION_BADGE_VARIANT[attempt.status]}>
+                      {attempt.status}
+                    </Badge>
+                    <Text as="span">{attempt.channel_name}</Text>
+                    <Text variant="caption" color="muted" as="span">
+                      {CHANNEL_TYPE_LABEL[attempt.channel_type]}
+                      {attempt.channel_id === null && " · deleted since"}
+                    </Text>
+                    {attempt.detail && (
+                      <Text variant="caption" color="error" as="span">
+                        {attempt.detail}
+                      </Text>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* The aggregate detail, for the disabled case that has no rows. */}
+            {run.notification_detail && attempts?.length === 0 && (
               <pre className="mb-2 max-h-40 overflow-auto rounded-md bg-error-bg p-3 font-mono text-xs whitespace-pre-wrap text-error-text">
                 {run.notification_detail}
               </pre>
             )}
+
+            {/*
+              The message body is the answer to "was it sent" — you read what
+              went out rather than inferring it from a badge.
+            */}
             {run.notification_message && (
               <pre className="max-h-40 overflow-auto rounded-md bg-background-secondary p-3 font-mono text-xs whitespace-pre-wrap text-text">
                 {run.notification_message}

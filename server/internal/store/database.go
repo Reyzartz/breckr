@@ -67,6 +67,30 @@ func Migrate(db *sql.DB, dir string) error {
 	return nil
 }
 
+// withTx runs fn inside a transaction, rolling back on error or panic.
+//
+// Writes that span tables need it -- a task saved without its channel links
+// would silently notify nowhere. Keep the body short and never hold one across
+// a network call: SetMaxOpenConns(1) means an open transaction blocks every
+// other query in the process.
+func withTx(db *sql.DB, fn func(*sql.Tx) error) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		// A no-op once Commit has run, and the safety net if fn panics.
+		_ = tx.Rollback()
+	}()
+
+	if err := fn(tx); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
 // now is the single source of timestamps. All of them are ISO-8601 UTC, written
 // from one place so they agree.
 func now() string {

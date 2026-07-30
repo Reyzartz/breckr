@@ -23,6 +23,7 @@ type TaskHandler struct {
 	logger    *log.Logger
 	taskStore store.TaskStore
 	runStore  store.RunStore
+	channels  store.ChannelStore
 	registry  *scheduler.Registry
 	runner    *runner.Runner
 	browser   Browser
@@ -33,6 +34,7 @@ func NewTaskHandler(
 	logger *log.Logger,
 	taskStore store.TaskStore,
 	runStore store.RunStore,
+	channels store.ChannelStore,
 	registry *scheduler.Registry,
 	taskRunner *runner.Runner,
 	browser Browser,
@@ -42,6 +44,7 @@ func NewTaskHandler(
 		logger:    logger,
 		taskStore: taskStore,
 		runStore:  runStore,
+		channels:  channels,
 		registry:  registry,
 		runner:    taskRunner,
 		browser:   browser,
@@ -50,9 +53,14 @@ func NewTaskHandler(
 }
 
 // decorate turns a stored task into the shape the dashboard reads.
-func (th *TaskHandler) decorate(task *types.Task, lastRun *types.Run) types.TaskWithStatus {
+func (th *TaskHandler) decorate(task *types.Task, lastRun *types.Run, channelIDs []string) types.TaskWithStatus {
+	if channelIDs == nil {
+		channelIDs = []string{}
+	}
+
 	return types.TaskWithStatus{
-		Task: *task,
+		Task:       *task,
+		ChannelIDs: channelIDs,
 		// Derived rather than stored, so a row whose expression was written by
 		// hand still opens in the form's builder -- as `custom`.
 		Schedule: executor.FromCron(task.CronExpr),
@@ -88,9 +96,15 @@ func (th *TaskHandler) HandleGetAllTasks(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	channelIDs, err := th.channels.ListChannelIDsByTask()
+	if err != nil {
+		th.fail(w, err, "ListChannelIDsByTask")
+		return
+	}
+
 	tasks := make([]types.TaskWithStatus, 0, len(stored))
 	for _, task := range stored {
-		tasks = append(tasks, th.decorate(task, latestRuns[task.ID]))
+		tasks = append(tasks, th.decorate(task, latestRuns[task.ID], channelIDs[task.ID]))
 	}
 
 	utils.WriteJSONResponse(w, http.StatusOK, utils.Envelope{"data": tasks})
@@ -151,17 +165,24 @@ func (th *TaskHandler) HandleCreateTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	channelIDs, err := th.validateChannelIDs(body.ChannelIDs)
+	if err != nil {
+		th.fail(w, err, "validating task channels")
+		return
+	}
+
 	enabled := true
 	if body.Enabled != nil {
 		enabled = *body.Enabled
 	}
 
 	created, err := th.taskStore.CreateTask(store.CreateTaskInput{
-		ID:       input.id,
-		Name:     input.name,
-		CronExpr: input.cronExpr,
-		Spec:     input.spec,
-		Enabled:  enabled,
+		ID:         input.id,
+		Name:       input.name,
+		CronExpr:   input.cronExpr,
+		Spec:       input.spec,
+		Enabled:    enabled,
+		ChannelIDs: channelIDs,
 	})
 	if err != nil {
 		th.fail(w, err, "CreateTask")
@@ -172,7 +193,7 @@ func (th *TaskHandler) HandleCreateTask(w http.ResponseWriter, r *http.Request) 
 	// expected to start running, not to wait for a restart.
 	scheduled := th.registry.Register(created)
 
-	response := th.decorate(created, nil)
+	response := th.decorate(created, nil, channelIDs)
 	response.Orphaned = !scheduled
 
 	utils.WriteJSONResponse(w, http.StatusCreated, utils.Envelope{"data": response})
@@ -202,6 +223,15 @@ func (th *TaskHandler) HandleUpdateTask(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		th.fail(w, err, "validating update task request")
 		return
+	}
+
+	if body.ChannelIDs != nil {
+		channelIDs, err := th.validateChannelIDs(*body.ChannelIDs)
+		if err != nil {
+			th.fail(w, err, "validating task channels")
+			return
+		}
+		patch.ChannelIDs = &channelIDs
 	}
 
 	enabled := existing.Enabled
@@ -248,6 +278,35 @@ func (th *TaskHandler) HandleUpdateTask(w http.ResponseWriter, r *http.Request) 
 			NextRun: th.registry.GetNextRun(id),
 		},
 	})
+}
+
+// validateChannelIDs rejects unknown ids and drops duplicates.
+//
+// Checked here rather than left to the foreign key: a constraint violation
+// surfaces as a 500 with a SQLite message, and the dashboard needs to say which
+// channel is missing -- usually one deleted in another tab.
+func (th *TaskHandler) validateChannelIDs(ids []string) ([]string, error) {
+	unique := make([]string, 0, len(ids))
+	seen := map[string]bool{}
+
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			continue
+		}
+
+		channel, err := th.channels.GetChannel(id)
+		if err != nil {
+			return nil, err
+		}
+		if channel == nil {
+			return nil, utils.Fail("channel_ids", "Unknown channel %q.", id)
+		}
+
+		seen[id] = true
+		unique = append(unique, id)
+	}
+
+	return unique, nil
 }
 
 func buildPatch(body types.UpdateTaskRequest) (store.UpdateTaskInput, error) {

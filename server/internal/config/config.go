@@ -1,9 +1,12 @@
 // Package config loads and validates every environment-driven setting.
 //
-// Everything is validated at boot rather than at first use. A bad timezone, a
-// malformed browser endpoint or half a Telegram credential are all
-// misconfigurations, and surfacing them on the first cron tick -- possibly
-// hours later, possibly at 4am -- is exactly when you least want to find out.
+// Everything is validated at boot rather than at first use. A bad timezone or a
+// malformed browser endpoint are misconfigurations, and surfacing them on the
+// first cron tick -- possibly hours later, possibly at 4am -- is exactly when
+// you least want to find out.
+//
+// Notification credentials are deliberately absent: channels are rows the user
+// manages from the dashboard, not environment variables.
 package config
 
 import (
@@ -23,7 +26,7 @@ type Config struct {
 	Client   ClientConfig
 	Database DatabaseConfig
 	Browser  BrowserConfig
-	Telegram TelegramConfig
+	Security SecurityConfig
 	Runtime  RuntimeConfig
 }
 
@@ -55,10 +58,11 @@ type BrowserConfig struct {
 	DefaultTimeout time.Duration
 }
 
-type TelegramConfig struct {
-	Token   string
-	ChatID  string
-	Enabled bool
+type SecurityConfig struct {
+	// KeyFile holds the master key that encrypts channel credentials at rest.
+	// It defaults to sitting beside the database, because the two are a pair:
+	// backing up one without the other leaves unreadable channels.
+	KeyFile string
 }
 
 type RuntimeConfig struct {
@@ -108,18 +112,6 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("TZ is not a valid IANA timezone: %q", timezone)
 	}
 
-	token := optional("TELEGRAM_BOT_TOKEN", "")
-	chatID := optional("TELEGRAM_CHAT_ID", "")
-
-	// One half without the other is a misconfiguration, not a disabled
-	// notifier -- surface it at boot instead of silently never alerting.
-	if token != "" && chatID == "" {
-		return nil, fmt.Errorf("TELEGRAM_BOT_TOKEN is set but TELEGRAM_CHAT_ID is empty. Set both, or neither to disable notifications")
-	}
-	if chatID != "" && token == "" {
-		return nil, fmt.Errorf("TELEGRAM_CHAT_ID is set but TELEGRAM_BOT_TOKEN is empty. Set both, or neither to disable notifications")
-	}
-
 	port, err := integer("PORT", 3000)
 	if err != nil {
 		return nil, err
@@ -143,6 +135,13 @@ func Load() (*Config, error) {
 
 	clientDist := resolveAgainst(root, optional("CLIENT_DIST", "./client/dist"))
 
+	// Defaulting beside the database keeps the two together through a `cp
+	// data/` backup, which is the only backup this app can assume anyone does.
+	keyFile := resolveAgainst(root, optional(
+		"SECRET_KEY_FILE",
+		filepath.Join(filepath.Dir(dbPath), "secret.key"),
+	))
+
 	return &Config{
 		Server: ServerConfig{
 			Host:       optional("HOST", "127.0.0.1"),
@@ -159,11 +158,7 @@ func Load() (*Config, error) {
 			NeedsResolve:   needsResolve,
 			DefaultTimeout: time.Duration(timeoutMs) * time.Millisecond,
 		},
-		Telegram: TelegramConfig{
-			Token:   token,
-			ChatID:  chatID,
-			Enabled: token != "" && chatID != "",
-		},
+		Security: SecurityConfig{KeyFile: keyFile},
 		Runtime: RuntimeConfig{
 			Timezone:      timezone,
 			Location:      location,
