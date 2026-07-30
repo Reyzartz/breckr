@@ -17,7 +17,10 @@ type CreateTaskInput struct {
 	Name     string
 	CronExpr string
 	Spec     *types.TaskSpec
-	Enabled  bool
+	// When to alert while the condition is met. Empty falls back to the
+	// column's own default, so a caller that does not care can leave it unset.
+	NotifyMode types.NotifyMode
+	Enabled    bool
 	// Channels this task alerts to. Written in the same transaction as the task
 	// itself -- a task that exists without its links would notify nowhere, and
 	// the arming logic would record that as "nothing owed".
@@ -27,16 +30,18 @@ type CreateTaskInput struct {
 // UpdateTaskInput patches a task. Only the non-nil fields are written; the rest
 // keep their stored values.
 type UpdateTaskInput struct {
-	Name     *string
-	CronExpr *string
-	Spec     *types.TaskSpec
+	Name       *string
+	CronExpr   *string
+	Spec       *types.TaskSpec
+	NotifyMode *types.NotifyMode
 	// Nil leaves the links alone; a non-nil pointer replaces them wholesale,
 	// including with an empty slice to detach every channel.
 	ChannelIDs *[]string
 }
 
 func (u UpdateTaskInput) IsEmpty() bool {
-	return u.Name == nil && u.CronExpr == nil && u.Spec == nil && u.ChannelIDs == nil
+	return u.Name == nil && u.CronExpr == nil && u.Spec == nil &&
+		u.NotifyMode == nil && u.ChannelIDs == nil
 }
 
 type TaskStore interface {
@@ -58,7 +63,7 @@ func NewSQLiteTaskStore(db *sql.DB) *SQLiteTaskStore {
 	return &SQLiteTaskStore{db: db}
 }
 
-const taskColumns = `id, name, cron_expr, enabled, condition_met, last_notified_at, spec`
+const taskColumns = `id, name, cron_expr, enabled, condition_met, notify_mode, last_notified_at, spec`
 
 // parseSpec reads a stored spec back, returning nil rather than an error when
 // the JSON no longer parses.
@@ -77,11 +82,25 @@ func parseSpec(raw sql.NullString) *types.TaskSpec {
 	return &spec
 }
 
+// parseNotifyMode reads a stored mode back, falling back to the default for a
+// value the current build no longer recognises.
+//
+// The same reasoning as parseSpec: an unreadable row should degrade to the
+// conservative behavior -- alerting once -- rather than surface as an error on
+// every request that lists tasks.
+func parseNotifyMode(raw string) types.NotifyMode {
+	if !types.IsNotifyMode(raw) {
+		return types.DefaultNotifyMode
+	}
+	return types.NotifyMode(raw)
+}
+
 func scanTask(row interface{ Scan(...any) error }) (*types.Task, error) {
 	var (
 		task           types.Task
 		enabled        int
 		conditionMet   int
+		notifyMode     string
 		lastNotifiedAt sql.NullString
 		spec           sql.NullString
 	)
@@ -92,6 +111,7 @@ func scanTask(row interface{ Scan(...any) error }) (*types.Task, error) {
 		&task.CronExpr,
 		&enabled,
 		&conditionMet,
+		&notifyMode,
 		&lastNotifiedAt,
 		&spec,
 	)
@@ -101,6 +121,7 @@ func scanTask(row interface{ Scan(...any) error }) (*types.Task, error) {
 
 	task.Enabled = enabled != 0
 	task.ConditionMet = conditionMet != 0
+	task.NotifyMode = parseNotifyMode(notifyMode)
 	task.LastNotifiedAt = nullString(lastNotifiedAt)
 	task.Spec = parseSpec(spec)
 
@@ -109,10 +130,11 @@ func scanTask(row interface{ Scan(...any) error }) (*types.Task, error) {
 
 func (s *SQLiteTaskStore) CreateTask(input CreateTaskInput) (*types.Task, error) {
 	query := `
-		INSERT INTO tasks (id, name, cron_expr, spec, enabled, created_at, updated_at)
-		    VALUES (?, ?, ?, ?, ?, ?, ?)`
+		INSERT INTO tasks (id, name, cron_expr, spec, notify_mode, enabled, created_at, updated_at)
+		    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 
 	at := now()
+	notifyMode := parseNotifyMode(string(input.NotifyMode))
 
 	err := withTx(s.db, func(tx *sql.Tx) error {
 		_, err := tx.Exec(query,
@@ -120,6 +142,7 @@ func (s *SQLiteTaskStore) CreateTask(input CreateTaskInput) (*types.Task, error)
 			input.Name,
 			input.CronExpr,
 			utils.SafeMarshal(input.Spec),
+			string(notifyMode),
 			fromBool(input.Enabled),
 			at,
 			at,
@@ -142,6 +165,11 @@ func (s *SQLiteTaskStore) CreateTask(input CreateTaskInput) (*types.Task, error)
 // Editing the spec deliberately re-arms the edge-trigger: the persisted
 // condition_met describes the *old* condition, and carrying it over would let a
 // stale "already alerted" flag swallow the first alert of the new one.
+//
+// Changing only notify_mode deliberately does *not*. The condition is unchanged,
+// so the stored state still describes it -- and re-arming would mean switching a
+// currently-matching task to "transition" fires one more alert for a transition
+// that already happened.
 func (s *SQLiteTaskStore) UpdateTask(id string, patch UpdateTaskInput) (*types.Task, error) {
 	assignments := []string{}
 	args := []any{}
@@ -157,6 +185,10 @@ func (s *SQLiteTaskStore) UpdateTask(id string, patch UpdateTaskInput) (*types.T
 	if patch.Spec != nil {
 		assignments = append(assignments, "spec = ?", "condition_met = 0")
 		args = append(args, utils.SafeMarshal(patch.Spec))
+	}
+	if patch.NotifyMode != nil {
+		assignments = append(assignments, "notify_mode = ?")
+		args = append(args, string(*patch.NotifyMode))
 	}
 
 	if len(assignments) > 0 || patch.ChannelIDs != nil {

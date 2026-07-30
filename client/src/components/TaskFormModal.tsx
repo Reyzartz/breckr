@@ -16,6 +16,7 @@ import type {
   Channel,
   CompareOperator,
   ExtractKind,
+  NotifyMode,
   Schedule,
   TaskSpec,
   TaskWithStatus,
@@ -24,9 +25,12 @@ import type {
 import { testTask } from "../services/monitor.service.ts";
 import { ApiError, toErrorMessage } from "../apis/client.ts";
 import {
+  DEFAULT_NOTIFY_MODE,
   DEFAULT_SCHEDULE,
   DEFAULT_SPEC,
   EXTRACT_OPTIONS,
+  NOTIFY_MODE_HINTS,
+  NOTIFY_MODE_OPTIONS,
   OPERATORS_BY_KIND,
   OPERATOR_LABELS,
   VALUELESS_OPERATORS,
@@ -47,6 +51,7 @@ interface TaskFormModalProps {
     name: string;
     schedule: Schedule;
     spec: TaskSpec;
+    notify_mode: NotifyMode;
     channel_ids: string[];
   }) => Promise<void>;
   onSave: (
@@ -55,6 +60,7 @@ interface TaskFormModalProps {
       name: string;
       schedule: Schedule;
       spec: TaskSpec;
+      notify_mode: NotifyMode;
       channel_ids: string[];
     }
   ) => Promise<void>;
@@ -73,6 +79,7 @@ interface FormState extends ScheduleFields {
   operator: CompareOperator;
   value: string;
   message: string;
+  notifyMode: NotifyMode;
 }
 
 const pad = (value: number): string => String(value).padStart(2, "0");
@@ -188,6 +195,8 @@ function toFormState(task: TaskWithStatus | null): FormState {
     operator: spec.operator,
     value: spec.value ?? "",
     message: spec.message ?? "",
+    // Not part of the spec: it is alert policy, and it survives a spec edit.
+    notifyMode: task?.notify_mode ?? DEFAULT_NOTIFY_MODE,
   };
 }
 
@@ -337,6 +346,13 @@ export function TaskFormModal({
     setFieldError(null);
   };
 
+  const handleNotifyModeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    set("notifyMode", event.target.value as NotifyMode);
+    setFieldError((current) =>
+      current?.field === "notify_mode" ? null : current
+    );
+  };
+
   const handleIdChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setIdTouched(true);
     set("id", event.target.value);
@@ -373,6 +389,7 @@ export function TaskFormModal({
       name: form.name.trim(),
       schedule: toSchedule(form),
       spec: toSpec(form),
+      notify_mode: form.notifyMode,
       channel_ids: channelIds,
     };
 
@@ -515,6 +532,23 @@ export function TaskFormModal({
             onManageChannels={onManageChannels}
           />
 
+          <Select
+            label="Alert me"
+            value={form.notifyMode}
+            onChange={handleNotifyModeChange}
+            // The server names this field in snake_case, so `bind`'s key-based
+            // lookup would not find its complaint.
+            error={errorFor("notify_mode")}
+            info={NOTIFY_MODE_HINTS[form.notifyMode]}
+            fullWidth
+          >
+            {NOTIFY_MODE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+
           <Textarea
             label="Alert message (optional)"
             {...bind("message")}
@@ -524,8 +558,7 @@ export function TaskFormModal({
           />
           <Text variant="caption" color="muted">
             Placeholders: <code>{"{{value}}"}</code> <code>{"{{raw}}"}</code>{" "}
-            <code>{"{{url}}"}</code> <code>{"{{name}}"}</code>. You are alerted once
-            when the condition becomes true, and not again until it goes back to false.
+            <code>{"{{url}}"}</code> <code>{"{{name}}"}</code>.
           </Text>
 
           {formError && <Alert variant="error">{formError}</Alert>}

@@ -169,6 +169,38 @@ const (
 
 // --- Tasks ------------------------------------------------------------------
 
+// NotifyMode is when a task alerts, given a condition that is met.
+//
+// Edge-triggering is the default because a condition that stays true is the
+// normal case for a monitor -- a price that dropped stays dropped -- and
+// alerting on every interval would train you to ignore the alerts. "always"
+// exists for the tasks where each matching run is its own event.
+type NotifyMode string
+
+const (
+	// NotifyOnTransition alerts on the false -> true transition only, and not
+	// again until the condition goes back to false.
+	NotifyOnTransition NotifyMode = "transition"
+	// NotifyAlways alerts on every run whose condition is met.
+	NotifyAlways NotifyMode = "always"
+)
+
+var NotifyModes = []NotifyMode{NotifyOnTransition, NotifyAlways}
+
+// DefaultNotifyMode is what a task alerts on when it says nothing -- and what
+// the column defaults to, so a row written before the mode existed keeps
+// behaving exactly as it did.
+const DefaultNotifyMode = NotifyOnTransition
+
+func IsNotifyMode(value string) bool {
+	for _, mode := range NotifyModes {
+		if string(mode) == value {
+			return true
+		}
+	}
+	return false
+}
+
 // Task is a task as stored.
 type Task struct {
 	ID       string `json:"id"`
@@ -182,7 +214,13 @@ type Task struct {
 	// Last known result of the condition. Drives edge-triggering: an alert
 	// fires only on the false -> true transition, and this persists across
 	// restarts so a reboot cannot re-notify.
+	//
+	// Tracked even under NotifyAlways, which ignores it: switching a task back
+	// to "transition" has to land on the real state of the condition rather
+	// than on whatever it was when the mode was changed.
 	ConditionMet bool `json:"condition_met"`
+	// When to alert while the condition is met. Defaults to "transition".
+	NotifyMode NotifyMode `json:"notify_mode"`
 	// ISO-8601 of the last delivered alert, or null if none has been sent.
 	LastNotifiedAt *string `json:"last_notified_at"`
 }
@@ -375,6 +413,8 @@ type CreateTaskRequest struct {
 	// Kept for callers driving the API directly.
 	CronExpr string    `json:"cron_expr,omitempty"`
 	Spec     *TaskSpec `json:"spec"`
+	// When to alert while the condition is met. Defaults to "transition".
+	NotifyMode *NotifyMode `json:"notify_mode,omitempty"`
 	// Defaults to true.
 	Enabled *bool `json:"enabled,omitempty"`
 	// Channels to alert on. Empty is allowed -- a task that only records history
@@ -391,6 +431,9 @@ type UpdateTaskRequest struct {
 	Schedule *Schedule `json:"schedule,omitempty"`
 	CronExpr *string   `json:"cron_expr,omitempty"`
 	Spec     *TaskSpec `json:"spec,omitempty"`
+	// Absent leaves the mode alone. Changing it deliberately does *not* re-arm
+	// the edge-trigger -- see SQLiteTaskStore.UpdateTask.
+	NotifyMode *NotifyMode `json:"notify_mode,omitempty"`
 	// Absent leaves the links alone; present replaces them wholesale, including
 	// with [] to detach every channel.
 	ChannelIDs *[]string `json:"channel_ids,omitempty"`

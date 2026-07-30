@@ -213,6 +213,27 @@ func ValidateSpec(candidate *types.TaskSpec) (*types.TaskSpec, error) {
 	}, nil
 }
 
+// ValidateNotifyMode resolves the alert mode, defaulting an empty value.
+//
+// Absent means "whatever the default is" rather than an error: the mode is an
+// optional field on both create and patch, and a caller driving the API by hand
+// should not have to name it to get the behavior every task had before it
+// existed.
+func ValidateNotifyMode(raw types.NotifyMode) (types.NotifyMode, error) {
+	if strings.TrimSpace(string(raw)) == "" {
+		return types.DefaultNotifyMode, nil
+	}
+	if !types.IsNotifyMode(string(raw)) {
+		labels := make([]string, len(types.NotifyModes))
+		for i, mode := range types.NotifyModes {
+			labels[i] = string(mode)
+		}
+		return "", utils.Fail("notify_mode",
+			"`notify_mode` must be one of %s, got %q.", strings.Join(labels, ", "), string(raw))
+	}
+	return raw, nil
+}
+
 func ValidateTaskID(raw string) (string, error) {
 	id, err := requireString(raw, "id", "`id`")
 	if err != nil {

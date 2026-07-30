@@ -145,6 +145,60 @@ func TestEditingTheSpecReArmsButRenamingDoesNot(t *testing.T) {
 	}
 }
 
+func TestANewTaskDefaultsToTransitionMode(t *testing.T) {
+	tasks := NewSQLiteTaskStore(newTestDB(t))
+
+	// newTask names no mode, which is also what a row written before the column
+	// existed looks like after the migration.
+	created := newTask(t, tasks, "price-check")
+
+	if created.NotifyMode != types.NotifyOnTransition {
+		t.Fatalf("notify_mode = %q, want the pre-existing behaviour", created.NotifyMode)
+	}
+}
+
+// The mode is a column rather than part of the spec precisely so these two can
+// be changed independently: editing the spec re-arms, changing the mode does
+// not, and neither one silently resets the other.
+func TestTheNotifyModeSurvivesASpecEditAndDoesNotReArm(t *testing.T) {
+	tasks := NewSQLiteTaskStore(newTestDB(t))
+	newTask(t, tasks, "price-check")
+
+	always := types.NotifyAlways
+	switched, err := tasks.UpdateTask("price-check", UpdateTaskInput{NotifyMode: &always})
+	if err != nil {
+		t.Fatalf("UpdateTask: %v", err)
+	}
+	if switched.NotifyMode != types.NotifyAlways {
+		t.Fatalf("notify_mode = %q, want always", switched.NotifyMode)
+	}
+
+	if err := tasks.MarkTaskNotified("price-check"); err != nil {
+		t.Fatalf("MarkTaskNotified: %v", err)
+	}
+
+	// Changing only the mode leaves the armed state alone -- the condition it
+	// describes has not changed.
+	transition := types.NotifyOnTransition
+	afterSwitchBack, err := tasks.UpdateTask("price-check", UpdateTaskInput{NotifyMode: &transition})
+	if err != nil {
+		t.Fatalf("UpdateTask: %v", err)
+	}
+	if !afterSwitchBack.ConditionMet {
+		t.Fatal("changing the mode must not re-arm the edge-trigger")
+	}
+
+	newSpec := sampleSpec()
+	newSpec.Value = "50"
+	afterEdit, err := tasks.UpdateTask("price-check", UpdateTaskInput{Spec: newSpec})
+	if err != nil {
+		t.Fatalf("UpdateTask: %v", err)
+	}
+	if afterEdit.NotifyMode != types.NotifyOnTransition {
+		t.Fatalf("notify_mode = %q, a spec edit must not reset it", afterEdit.NotifyMode)
+	}
+}
+
 func TestDeletingATaskCascadesItsRuns(t *testing.T) {
 	db := newTestDB(t)
 	tasks := NewSQLiteTaskStore(db)

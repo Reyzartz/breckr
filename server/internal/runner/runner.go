@@ -121,12 +121,18 @@ func (r *Runner) RunTask(
 		}
 	}
 
-	// Edge-triggered: fire on the false -> true transition only, so a condition
-	// that stays true doesn't notify on every interval. wasMet is read from the
-	// database rather than memory so the state survives a restart.
+	// Edge-triggered by default: fire on the false -> true transition only, so a
+	// condition that stays true doesn't notify on every interval. A task set to
+	// "always" opts out and alerts on every matching run instead.
+	//
+	// Both are read from the database rather than memory, so the armed state
+	// survives a restart and a mode changed from the dashboard takes effect on
+	// the very next run without rescheduling anything.
 	wasMet := false
+	notifyMode := types.DefaultNotifyMode
 	if persisted, err := r.tasks.GetTask(definition.ID); err == nil && persisted != nil {
 		wasMet = persisted.ConditionMet
+		notifyMode = persisted.NotifyMode
 	}
 
 	notified := false
@@ -138,7 +144,7 @@ func (r *Runner) RunTask(
 	notifyMessage := ""
 
 	switch {
-	case conditionMet && !wasMet:
+	case conditionMet && (notifyMode == types.NotifyAlways || !wasMet):
 		notifyMessage = fmt.Sprintf("Task %q matched its condition.", definition.Name)
 		if definition.Notify != nil {
 			notifyMessage = definition.Notify(result)
@@ -155,6 +161,9 @@ func (r *Runner) RunTask(
 		// aggregate claiming a breakdown that was never stored.
 		r.recordAttempts(runID, fanout, notifyMessage)
 
+		// Under "always" the branches below only keep condition_met describing
+		// the condition -- the next run alerts either way. They still have to
+		// run, so switching the task back to "transition" lands on the truth.
 		switch {
 		case outcome.Delivered:
 			// One channel getting through is enough. Retrying for the sake of a
