@@ -3,6 +3,7 @@ import type {
   CompareOperator,
   ExtractKind,
   NotificationReason,
+  NotifyMode,
   RunStatus,
   Schedule,
   ScheduleFrequency,
@@ -196,6 +197,28 @@ export const EXTRACT_OPTIONS: readonly { value: ExtractKind; label: string }[] =
   { value: "count", label: "How many match" },
   { value: "exists", label: "Whether it exists" },
 ];
+
+/** What every task did before the mode existed, and what the server defaults to. */
+export const DEFAULT_NOTIFY_MODE: NotifyMode = "transition";
+
+/** The alert modes the form offers, in the order they appear. */
+export const NOTIFY_MODE_OPTIONS: readonly { value: NotifyMode; label: string }[] = [
+  { value: "transition", label: "Once, when it starts matching" },
+  { value: "always", label: "Every time it matches" },
+];
+
+/**
+ * What each mode actually does, shown under the control.
+ *
+ * Spelled out rather than left to the label: "every time it matches" means
+ * every *run*, which is the schedule's frequency — and that is the thing worth
+ * knowing before picking it.
+ */
+export const NOTIFY_MODE_HINTS: Record<NotifyMode, string> = {
+  transition:
+    "You are alerted once when the condition becomes true, and not again until it goes back to false.",
+  always: "You are alerted on every scheduled run where the condition is true.",
+};
 
 export const OPERATOR_LABELS: Record<CompareOperator, string> = {
   lt: "is less than",

@@ -186,6 +186,19 @@ func (h *harness) run(t *testing.T, definition *types.ResolvedTask) types.RunOut
 	return h.runner.RunTask(context.Background(), definition, types.TriggerCron)
 }
 
+// setNotifyMode switches a task's alert mode, as the dashboard's PATCH does.
+//
+// Applied after creation rather than through a wider h.task signature, because
+// it is exactly how the mode reaches a task in production -- and it proves a
+// mode change lands without the task being rescheduled or re-armed.
+func (h *harness) setNotifyMode(t *testing.T, id string, mode types.NotifyMode) {
+	t.Helper()
+
+	if _, err := h.tasks.UpdateTask(id, store.UpdateTaskInput{NotifyMode: &mode}); err != nil {
+		t.Fatalf("UpdateTask: %v", err)
+	}
+}
+
 func (h *harness) isArmed(t *testing.T, id string) bool {
 	t.Helper()
 
@@ -217,6 +230,78 @@ func TestNotifiesOnceWhileTheConditionHolds(t *testing.T) {
 	}
 	if !h.isArmed(t, definition.ID) {
 		t.Fatal("state stays armed while the condition holds")
+	}
+}
+
+/*
+The "always" mode is the opt-out from that dedup, so the pair above and the pair
+below have to disagree about exactly one thing: whether a held condition
+re-alerts. Everything else -- the retry on failure, the re-arm on clearing -- is
+shared, which is why the mode is a widening of one switch arm rather than a
+second state machine.
+*/
+
+func TestAlwaysModeAlertsOnEveryMatchingRun(t *testing.T) {
+	h := newHarness(t, types.NotificationOutcome{Delivered: true, Reason: types.NotificationSent})
+	value := 500.0
+	definition := h.task(t, &value)
+	h.setNotifyMode(t, definition.ID, types.NotifyAlways)
+
+	value = 50
+	h.run(t, definition)
+	value = 40
+	h.run(t, definition)
+	value = 30
+	h.run(t, definition)
+
+	if h.notifier.count() != 3 {
+		t.Fatalf("every match alerts under \"always\", sent %d", h.notifier.count())
+	}
+	// Still tracked even though nothing reads it in this mode: switching back to
+	// "transition" has to land on the real state of the condition.
+	if !h.isArmed(t, definition.ID) {
+		t.Fatal("condition_met keeps describing the condition under \"always\"")
+	}
+}
+
+func TestAlwaysModeStillStaysQuietWhileTheConditionIsUnmet(t *testing.T) {
+	h := newHarness(t, types.NotificationOutcome{Delivered: true, Reason: types.NotificationSent})
+	value := 500.0
+	definition := h.task(t, &value)
+	h.setNotifyMode(t, definition.ID, types.NotifyAlways)
+
+	// 500 fails the `< 100` condition. "always" widens *when* a met condition
+	// alerts; it does not alert on a condition that was never met.
+	row := h.row(t, h.run(t, definition))
+
+	if h.notifier.count() != 0 {
+		t.Fatalf("an unmet condition owes nothing, sent %d", h.notifier.count())
+	}
+	if row.NotificationStatus != nil {
+		t.Fatalf("status = %v, want nil -- no alert was owed", *row.NotificationStatus)
+	}
+}
+
+func TestSwitchingBackToTransitionResumesDedupWithoutReAlerting(t *testing.T) {
+	h := newHarness(t, types.NotificationOutcome{Delivered: true, Reason: types.NotificationSent})
+	value := 50.0
+	definition := h.task(t, &value)
+	h.setNotifyMode(t, definition.ID, types.NotifyAlways)
+
+	h.run(t, definition)
+	h.run(t, definition)
+	if h.notifier.count() != 2 {
+		t.Fatalf("sent %d, want 2", h.notifier.count())
+	}
+
+	h.setNotifyMode(t, definition.ID, types.NotifyOnTransition)
+	value = 40
+	h.run(t, definition)
+
+	// The transition already happened and was already alerted on. Changing the
+	// mode must not manufacture a fresh one.
+	if h.notifier.count() != 2 {
+		t.Fatalf("a held condition must not re-alert after the switch, sent %d", h.notifier.count())
 	}
 }
 

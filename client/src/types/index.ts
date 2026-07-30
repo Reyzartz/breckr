@@ -204,6 +204,20 @@ export type Schedule =
   | { every: "month"; day: number; hour: number; minute: number }
   | { every: "custom"; cron: string };
 
+/**
+ * When a task alerts, given a condition that is met.
+ *
+ * `transition` is the default because a condition that stays true is the normal
+ * case for a monitor — a price that dropped stays dropped — and alerting on
+ * every interval would train you to ignore the alerts. `always` exists for the
+ * tasks where each matching run is its own event.
+ */
+export type NotifyMode =
+  /** Only on the false → true edge, and not again until it goes back to false. */
+  | "transition"
+  /** On every run whose condition is met. */
+  | "always";
+
 /** A task as stored. */
 export interface Task {
   id: string;
@@ -220,8 +234,13 @@ export interface Task {
    * Last known result of the condition. Drives edge-triggering: an alert fires
    * only on the false -> true transition, and this persists across restarts so
    * a reboot cannot re-notify.
+   *
+   * Tracked even under `always`, which ignores it — switching back to
+   * `transition` has to land on the real state of the condition.
    */
   condition_met: boolean;
+  /** When to alert while the condition is met. Defaults to `transition`. */
+  notify_mode: NotifyMode;
   /** ISO-8601 of the last delivered alert, or null if none has been sent. */
   last_notified_at: string | null;
 }
@@ -358,6 +377,8 @@ export interface CreateTaskRequest {
    */
   cron_expr?: string;
   spec: TaskSpec;
+  /** When to alert while the condition is met. Defaults to `transition`. */
+  notify_mode?: NotifyMode;
   /** Defaults to true. */
   enabled?: boolean;
   /** Channels to alert on. Empty means the task records history but never alerts. */
@@ -372,6 +393,11 @@ export interface UpdateTaskRequest {
   schedule?: Schedule;
   cron_expr?: string;
   spec?: TaskSpec;
+  /**
+   * Absent leaves the mode alone. Changing it does not re-arm the trigger: the
+   * condition is unchanged, so the stored state still describes it.
+   */
+  notify_mode?: NotifyMode;
   /** Absent leaves the links alone; `[]` detaches every channel. */
   channel_ids?: string[];
 }

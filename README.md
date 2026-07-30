@@ -112,13 +112,28 @@ while getting a selector right.
 This is also the quickest end-to-end check that the browser is wired up
 correctly.
 
-### Notifications are edge-triggered
+### Notifications are edge-triggered by default
 
 You are alerted once when the condition flips false → true, and not again until
 it goes back to false. Prefer a plain state test (`price is less than 100`) —
 the framework handles the transition. State is persisted, so restarting does not
 re-alert. Editing a task's definition re-arms it, since the stored state
 described the *old* condition.
+
+Each task chooses this with **Alert me**, saved as `notify_mode`:
+
+| mode | behaviour |
+| --- | --- |
+| `transition` | once on the false → true edge, then quiet until it clears (**default**) |
+| `always` | on every scheduled run where the condition is true |
+
+Pick `always` for a task where each matching run is its own event; leave it alone
+otherwise, since a repeating alert is the fastest way to stop reading them.
+
+The mode is stored on the task rather than in its spec, so it survives an edit to
+the condition, and a `PATCH` carrying only `notify_mode` changes when the task
+alerts without touching *whether* it currently matches. Saving from the dashboard
+submits the whole spec, so it re-arms the trigger like any other definition edit.
 
 `changed` is the exception that still composes correctly: the run after a change
 sees no change, which re-arms it for the next one. It compares against the last
@@ -133,7 +148,7 @@ channel is visible rather than merely retried.
 
 If *every* channel fails, the alert is still owed: the trigger stays disarmed and
 the next run retries it. If a task has no channels at all, messages are logged and
-dedup behaves exactly as it would in production.
+dedup behaves exactly as it would in production. Both hold in either mode.
 
 ### Notification channels
 
@@ -253,7 +268,7 @@ Relative `DB_PATH` and `CLIENT_DIST` resolve against the directory holding the
 | `GET /api/health` | liveness + whether the browser is reachable |
 | `GET /api/tasks` | tasks with last run and next run time |
 | `POST /api/tasks` | create; schedules it immediately |
-| `PATCH /api/tasks/:id` | any of `{ enabled, name, schedule \| cron_expr, spec, channel_ids }` |
+| `PATCH /api/tasks/:id` | any of `{ enabled, name, schedule \| cron_expr, spec, notify_mode, channel_ids }` |
 | `DELETE /api/tasks/:id` | delete; run history cascades with it |
 | `POST /api/tasks/test` | run a draft spec once — no run row, no notification |
 | `GET /api/runs` | `task_id`, `status`, `limit` (max 200), `offset` |

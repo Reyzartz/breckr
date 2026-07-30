@@ -111,10 +111,11 @@ func (th *TaskHandler) HandleGetAllTasks(w http.ResponseWriter, r *http.Request)
 }
 
 type createInput struct {
-	id       string
-	name     string
-	cronExpr string
-	spec     *types.TaskSpec
+	id         string
+	name       string
+	cronExpr   string
+	spec       *types.TaskSpec
+	notifyMode types.NotifyMode
 }
 
 func validateCreate(body types.CreateTaskRequest) (*createInput, error) {
@@ -138,7 +139,18 @@ func validateCreate(body types.CreateTaskRequest) (*createInput, error) {
 		return nil, err
 	}
 
-	return &createInput{id: id, name: name, cronExpr: cronExpr, spec: spec}, nil
+	notifyMode, err := executor.ValidateNotifyMode(optionalNotifyMode(body.NotifyMode))
+	if err != nil {
+		return nil, err
+	}
+
+	return &createInput{
+		id:         id,
+		name:       name,
+		cronExpr:   cronExpr,
+		spec:       spec,
+		notifyMode: notifyMode,
+	}, nil
 }
 
 func (th *TaskHandler) HandleCreateTask(w http.ResponseWriter, r *http.Request) {
@@ -181,6 +193,7 @@ func (th *TaskHandler) HandleCreateTask(w http.ResponseWriter, r *http.Request) 
 		Name:       input.name,
 		CronExpr:   input.cronExpr,
 		Spec:       input.spec,
+		NotifyMode: input.notifyMode,
 		Enabled:    enabled,
 		ChannelIDs: channelIDs,
 	})
@@ -336,6 +349,14 @@ func buildPatch(body types.UpdateTaskRequest) (store.UpdateTaskInput, error) {
 		patch.Spec = spec
 	}
 
+	if body.NotifyMode != nil {
+		notifyMode, err := executor.ValidateNotifyMode(*body.NotifyMode)
+		if err != nil {
+			return patch, err
+		}
+		patch.NotifyMode = &notifyMode
+	}
+
 	return patch, nil
 }
 
@@ -441,4 +462,13 @@ func optionalString(value string) *string {
 		return nil
 	}
 	return &value
+}
+
+// optionalNotifyMode flattens an absent mode to the empty string, which
+// ValidateNotifyMode resolves to the default.
+func optionalNotifyMode(mode *types.NotifyMode) types.NotifyMode {
+	if mode == nil {
+		return ""
+	}
+	return *mode
 }
