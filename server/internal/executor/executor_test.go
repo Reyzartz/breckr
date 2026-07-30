@@ -16,28 +16,56 @@ A spec is interpreted, not evaluated, so this is where "does `lt` actually mean
 less-than" is pinned down. No browser and no database are involved.
 */
 
-func conditionSpec(mutate func(s *types.TaskSpec)) *types.TaskSpec {
-	spec := &types.TaskSpec{
-		URL:      "https://example.com",
+func condition(mutate func(c *types.Condition)) *types.Condition {
+	c := &types.Condition{
 		Selector: ".price",
 		Extract:  types.ExtractNumber,
 		Operator: types.OpLT,
 	}
-	mutate(spec)
-	return spec
+	mutate(c)
+	return c
 }
 
-func resultOf(value any) *types.TaskResult {
-	return resultOfRaw(value, stringify(value))
+// oneCondition wraps a single condition in a spec, which is the shape most of
+// these tests want: the operator table does not care how many there are.
+func oneCondition(mutate func(c *types.Condition)) *types.TaskSpec {
+	return &types.TaskSpec{
+		URL:        "https://example.com",
+		Match:      types.MatchAll,
+		Conditions: []types.Condition{*condition(mutate)},
+	}
 }
 
-func resultOfRaw(value any, raw string) *types.TaskResult {
-	return &types.TaskResult{
-		Value:     value,
-		Raw:       raw,
+func resultOf(spec *types.TaskSpec, values ...any) *types.TaskResult {
+	raws := make([]string, len(values))
+	for i, value := range values {
+		raws[i] = stringify(value)
+	}
+	return resultOfRaw(spec, values, raws)
+}
+
+// resultOfRaw builds the result Execute would have produced for this spec, so
+// the evaluation and message tests need no page.
+func resultOfRaw(spec *types.TaskSpec, values []any, raws []string) *types.TaskResult {
+	checks := make([]types.CheckResult, len(values))
+	for i, value := range values {
+		checks[i] = types.CheckResult{
+			Key:   spec.Conditions[i].Key(),
+			Value: value,
+			Raw:   raws[i],
+		}
+	}
+
+	result := &types.TaskResult{
 		URL:       "https://example.com",
 		CheckedAt: "2026-01-01T00:00:00Z",
+		Checks:    checks,
 	}
+	if len(checks) > 0 {
+		result.Value = checks[0].Value
+		result.Raw = checks[0].Raw
+	}
+	return result
 }
 
 func TestEvaluateConditionNumericOperators(t *testing.T) {
@@ -61,11 +89,11 @@ func TestEvaluateConditionNumericOperators(t *testing.T) {
 	for _, tc := range cases {
 		name := fmt.Sprintf("%s %s against %v is %t", tc.operator, tc.value, tc.at, tc.expected)
 		t.Run(name, func(t *testing.T) {
-			spec := conditionSpec(func(s *types.TaskSpec) {
-				s.Operator = tc.operator
-				s.Value = tc.value
+			c := condition(func(c *types.Condition) {
+				c.Operator = tc.operator
+				c.Value = tc.value
 			})
-			if got := EvaluateCondition(spec, resultOf(tc.at), nil); got != tc.expected {
+			if got := EvaluateCondition(c, tc.at, nil); got != tc.expected {
 				t.Fatalf("EvaluateCondition = %t, want %t", got, tc.expected)
 			}
 		})
@@ -90,12 +118,12 @@ func TestEvaluateConditionTextualOperators(t *testing.T) {
 	for _, tc := range cases {
 		name := fmt.Sprintf("%s %q against %q is %t", tc.operator, tc.value, tc.at, tc.expected)
 		t.Run(name, func(t *testing.T) {
-			spec := conditionSpec(func(s *types.TaskSpec) {
-				s.Extract = types.ExtractText
-				s.Operator = tc.operator
-				s.Value = tc.value
+			c := condition(func(c *types.Condition) {
+				c.Extract = types.ExtractText
+				c.Operator = tc.operator
+				c.Value = tc.value
 			})
-			if got := EvaluateCondition(spec, resultOf(tc.at), nil); got != tc.expected {
+			if got := EvaluateCondition(c, tc.at, nil); got != tc.expected {
 				t.Fatalf("EvaluateCondition = %t, want %t", got, tc.expected)
 			}
 		})
@@ -103,19 +131,19 @@ func TestEvaluateConditionTextualOperators(t *testing.T) {
 }
 
 func TestIsTrueAndIsFalseReadAnExistenceCheck(t *testing.T) {
-	present := conditionSpec(func(s *types.TaskSpec) {
-		s.Extract = types.ExtractExists
-		s.Operator = types.OpIsTrue
+	present := condition(func(c *types.Condition) {
+		c.Extract = types.ExtractExists
+		c.Operator = types.OpIsTrue
 	})
-	absent := conditionSpec(func(s *types.TaskSpec) {
-		s.Extract = types.ExtractExists
-		s.Operator = types.OpIsFalse
+	absent := condition(func(c *types.Condition) {
+		c.Extract = types.ExtractExists
+		c.Operator = types.OpIsFalse
 	})
 
 	cases := []struct {
-		spec     *types.TaskSpec
-		value    bool
-		expected bool
+		condition *types.Condition
+		value     bool
+		expected  bool
 	}{
 		{present, true, true},
 		{present, false, false},
@@ -124,8 +152,8 @@ func TestIsTrueAndIsFalseReadAnExistenceCheck(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		if got := EvaluateCondition(tc.spec, resultOf(tc.value), nil); got != tc.expected {
-			t.Fatalf("%s against %t = %t, want %t", tc.spec.Operator, tc.value, got, tc.expected)
+		if got := EvaluateCondition(tc.condition, tc.value, nil); got != tc.expected {
+			t.Fatalf("%s against %t = %t, want %t", tc.condition.Operator, tc.value, got, tc.expected)
 		}
 	}
 }
@@ -133,12 +161,12 @@ func TestIsTrueAndIsFalseReadAnExistenceCheck(t *testing.T) {
 func TestEqComparesAsStrings(t *testing.T) {
 	// The form always yields a string; a `number` extraction always yields a
 	// number. Comparing them by type would make eq permanently false.
-	spec := conditionSpec(func(s *types.TaskSpec) {
-		s.Operator = types.OpEq
-		s.Value = "10"
+	c := condition(func(c *types.Condition) {
+		c.Operator = types.OpEq
+		c.Value = "10"
 	})
 
-	if !EvaluateCondition(spec, resultOf(float64(10)), nil) {
+	if !EvaluateCondition(c, float64(10), nil) {
 		t.Fatal("a page number must match the form's string")
 	}
 }
@@ -146,21 +174,21 @@ func TestEqComparesAsStrings(t *testing.T) {
 // --- changed ----------------------------------------------------------------
 
 func TestChangedOperator(t *testing.T) {
-	changed := conditionSpec(func(s *types.TaskSpec) {
-		s.Extract = types.ExtractText
-		s.Operator = types.OpChanged
+	changed := condition(func(c *types.Condition) {
+		c.Extract = types.ExtractText
+		c.Operator = types.OpChanged
 	})
 
 	t.Run("is false on the very first run", func(t *testing.T) {
 		// Nothing to compare against, so a brand-new task must not alert on
 		// whatever it happens to see first.
-		if EvaluateCondition(changed, resultOf("18:25:43"), nil) {
+		if EvaluateCondition(changed, "18:25:43", nil) {
 			t.Fatal("changed fired with no previous run")
 		}
 	})
 
 	t.Run("fires when the value differs from the last success", func(t *testing.T) {
-		if !EvaluateCondition(changed, resultOf("18:25:44"), "18:25:43") {
+		if !EvaluateCondition(changed, "18:25:44", "18:25:43") {
 			t.Fatal("changed did not fire on a differing value")
 		}
 	})
@@ -168,7 +196,7 @@ func TestChangedOperator(t *testing.T) {
 	t.Run("is false when the value held steady", func(t *testing.T) {
 		// This is what re-arms the edge-trigger: the run after a change sees no
 		// change, so the next change fires again.
-		if EvaluateCondition(changed, resultOf("18:25:43"), "18:25:43") {
+		if EvaluateCondition(changed, "18:25:43", "18:25:43") {
 			t.Fatal("changed fired on an unchanged value")
 		}
 	})
@@ -178,11 +206,11 @@ func TestChangedOperator(t *testing.T) {
 
 func TestRenderMessage(t *testing.T) {
 	t.Run("renders every placeholder", func(t *testing.T) {
-		spec := conditionSpec(func(s *types.TaskSpec) {
-			s.Message = "{{name}}: {{value}} (raw {{raw}}) at {{url}}"
-		})
+		spec := oneCondition(func(*types.Condition) {})
+		spec.Message = "{{name}}: {{value}} (raw {{raw}}) at {{url}}"
 
-		got := RenderMessage(spec, resultOfRaw(float64(42), "$42.00"), "Price check")
+		result := resultOfRaw(spec, []any{float64(42)}, []string{"$42.00"})
+		got := RenderMessage(spec, result, "Price check")
 		want := "Price check: 42 (raw $42.00) at https://example.com"
 		if got != want {
 			t.Fatalf("RenderMessage = %q, want %q", got, want)
@@ -190,15 +218,17 @@ func TestRenderMessage(t *testing.T) {
 	})
 
 	t.Run("tolerates whitespace inside a placeholder", func(t *testing.T) {
-		spec := conditionSpec(func(s *types.TaskSpec) { s.Message = "now {{ value }}" })
+		spec := oneCondition(func(*types.Condition) {})
+		spec.Message = "now {{ value }}"
 
-		if got := RenderMessage(spec, resultOf(float64(7)), "T"); got != "now 7" {
+		if got := RenderMessage(spec, resultOf(spec, float64(7)), "T"); got != "now 7" {
 			t.Fatalf("RenderMessage = %q, want %q", got, "now 7")
 		}
 	})
 
 	t.Run("falls back to a default body when no template is set", func(t *testing.T) {
-		got := RenderMessage(conditionSpec(func(*types.TaskSpec) {}), resultOf(float64(42)), "Price check")
+		spec := oneCondition(func(*types.Condition) {})
+		got := RenderMessage(spec, resultOf(spec, float64(42)), "Price check")
 
 		if !strings.Contains(got, "Price check") || !strings.Contains(got, "42") {
 			t.Fatalf("default body %q should name the task and the value", got)
@@ -208,11 +238,10 @@ func TestRenderMessage(t *testing.T) {
 	t.Run("a template is substituted, never evaluated", func(t *testing.T) {
 		// The whole point of the declarative spec: no user string reaches an
 		// interpreter, so this stays literal text.
-		spec := conditionSpec(func(s *types.TaskSpec) {
-			s.Message = "${process.exit(1)} and {{value}}"
-		})
+		spec := oneCondition(func(*types.Condition) {})
+		spec.Message = "${process.exit(1)} and {{value}}"
 
-		got := RenderMessage(spec, resultOf(float64(1)), "T")
+		got := RenderMessage(spec, resultOf(spec, float64(1)), "T")
 		if got != "${process.exit(1)} and 1" {
 			t.Fatalf("RenderMessage = %q -- the template must be substituted, not evaluated", got)
 		}
@@ -271,10 +300,10 @@ func TestExecuteExtraction(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			spec := conditionSpec(func(s *types.TaskSpec) {
-				s.Extract = tc.extract
-				s.Attribute = "href"
-				s.Operator = types.OpChanged
+			spec := oneCondition(func(c *types.Condition) {
+				c.Extract = tc.extract
+				c.Attribute = "href"
+				c.Operator = types.OpChanged
 			})
 
 			result, err := Execute(tc.page, spec)
@@ -298,9 +327,9 @@ func TestExecuteExtraction(t *testing.T) {
 // compares false against every threshold, so the monitor would look healthy and
 // never fire -- exactly the failure this app exists to avoid.
 func TestNumberExtractionFailsRatherThanYieldingNaN(t *testing.T) {
-	spec := conditionSpec(func(s *types.TaskSpec) {
-		s.Extract = types.ExtractNumber
-		s.Value = "100"
+	spec := oneCondition(func(c *types.Condition) {
+		c.Extract = types.ExtractNumber
+		c.Value = "100"
 	})
 
 	if _, err := Execute(&fakePage{text: "Sold out"}, spec); err == nil {

@@ -57,7 +57,17 @@ func validateURL(raw string) (string, error) {
 	return parsed.String(), nil
 }
 
-func validateExtract(raw types.ExtractKind) (types.ExtractKind, error) {
+// conditionField names a field inside one condition.
+//
+// The dashboard renders a server complaint against the control it names, and
+// with a list of conditions a bare "selector" would land on whichever row
+// happens to be first -- which is the one row you can be sure is not the
+// problem, since validation stops at the first failure.
+func conditionField(index int, name string) string {
+	return fmt.Sprintf("conditions[%d].%s", index, name)
+}
+
+func validateExtract(raw types.ExtractKind, index int) (types.ExtractKind, error) {
 	for _, kind := range types.ExtractKinds {
 		if kind == raw {
 			return raw, nil
@@ -68,11 +78,11 @@ func validateExtract(raw types.ExtractKind) (types.ExtractKind, error) {
 	for i, kind := range types.ExtractKinds {
 		labels[i] = string(kind)
 	}
-	return "", utils.Fail("extract",
+	return "", utils.Fail(conditionField(index, "extract"),
 		"`extract` must be one of %s, got %q.", strings.Join(labels, ", "), string(raw))
 }
 
-func validateOperator(raw types.CompareOperator, extract types.ExtractKind) (types.CompareOperator, error) {
+func validateOperator(raw types.CompareOperator, extract types.ExtractKind, index int) (types.CompareOperator, error) {
 	allowed := types.OperatorsByKind[extract]
 
 	for _, operator := range allowed {
@@ -85,15 +95,33 @@ func validateOperator(raw types.CompareOperator, extract types.ExtractKind) (typ
 	for i, operator := range allowed {
 		labels[i] = string(operator)
 	}
-	return "", utils.Fail("operator",
+	return "", utils.Fail(conditionField(index, "operator"),
 		"`operator` %q cannot be used with extract %q. Allowed: %s.",
 		string(raw), string(extract), strings.Join(labels, ", "))
+}
+
+func validateMatch(raw types.MatchMode) (types.MatchMode, error) {
+	if strings.TrimSpace(string(raw)) == "" {
+		return types.DefaultMatchMode, nil
+	}
+	if !types.IsMatchMode(string(raw)) {
+		labels := make([]string, len(types.MatchModes))
+		for i, mode := range types.MatchModes {
+			labels[i] = string(mode)
+		}
+		return "", utils.Fail("match",
+			"`match` must be one of %s, got %q.", strings.Join(labels, ", "), string(raw))
+	}
+	return raw, nil
 }
 
 // validateMessage rejects an unknown placeholder rather than rendering it
 // literally: `{{prive}}` would otherwise ship in the alert body as-is, and you
 // would only find out at the moment you most wanted the message to be right.
-func validateMessage(raw string) (string, error) {
+//
+// `conditions` is how many the task has, which is what makes {{value3}} on a
+// two-condition task answerable here rather than at alert time.
+func validateMessage(raw string, conditions int) (string, error) {
 	message := strings.TrimSpace(raw)
 	if message == "" {
 		return "", nil
@@ -101,6 +129,20 @@ func validateMessage(raw string) (string, error) {
 
 	for _, match := range types.MessagePlaceholderPattern.FindAllStringSubmatch(message, -1) {
 		name := match[1]
+
+		if indexed := types.IndexedPlaceholderPattern.FindStringSubmatch(name); indexed != nil {
+			// The pattern only matches digits without a leading zero, so this
+			// parses unless the number is longer than an int -- which is out of
+			// range for any condition count regardless.
+			position, err := strconv.Atoi(indexed[2])
+			if err != nil || position > conditions {
+				return "", utils.Fail("message",
+					"`message` references {{%s}}, but the task has %s.",
+					name, pluralConditions(conditions))
+			}
+			continue
+		}
+
 		known := false
 		for _, placeholder := range types.MessagePlaceholders {
 			if placeholder == name {
@@ -114,12 +156,20 @@ func validateMessage(raw string) (string, error) {
 				available[i] = "{{" + placeholder + "}}"
 			}
 			return "", utils.Fail("message",
-				"`message` references unknown placeholder {{%s}}. Available: %s.",
+				"`message` references unknown placeholder {{%s}}. Available: %s, "+
+					"plus {{value1}} / {{raw1}} … one pair per condition.",
 				name, strings.Join(available, ", "))
 		}
 	}
 
 	return message, nil
+}
+
+func pluralConditions(count int) string {
+	if count == 1 {
+		return "only 1 condition"
+	}
+	return fmt.Sprintf("only %d conditions", count)
 }
 
 func isValueless(operator types.CompareOperator) bool {
@@ -140,8 +190,69 @@ func isNumericKind(extract types.ExtractKind) bool {
 	return false
 }
 
+// validateCondition validates one condition and returns it normalized, with
+// blanks collapsed away.
+func validateCondition(candidate *types.Condition, index int) (types.Condition, error) {
+	selector, err := requireString(candidate.Selector, conditionField(index, "selector"), "`selector`")
+	if err != nil {
+		return types.Condition{}, err
+	}
+
+	waitForSelector := strings.TrimSpace(candidate.WaitForSelector)
+
+	extract, err := validateExtract(candidate.Extract, index)
+	if err != nil {
+		return types.Condition{}, err
+	}
+
+	operator, err := validateOperator(candidate.Operator, extract, index)
+	if err != nil {
+		return types.Condition{}, err
+	}
+
+	// Only meaningful for `attribute`, and dropped otherwise so a leftover
+	// value from switching kinds in the form does not linger in the stored spec.
+	attribute := ""
+	if extract == types.ExtractAttribute {
+		attribute, err = requireString(candidate.Attribute, conditionField(index, "attribute"),
+			"`attribute` is required when extract is \"attribute\" and")
+		if err != nil {
+			return types.Condition{}, err
+		}
+	}
+
+	value := ""
+	if !isValueless(operator) {
+		value, err = requireString(candidate.Value, conditionField(index, "value"),
+			fmt.Sprintf("`value` is required for operator %q and", string(operator)))
+		if err != nil {
+			return types.Condition{}, err
+		}
+
+		if isNumericKind(extract) {
+			if _, err := strconv.ParseFloat(value, 64); err != nil {
+				return types.Condition{}, utils.Fail(conditionField(index, "value"),
+					"`value` must be a number when extract is %q, got %q.", string(extract), value)
+			}
+		}
+	}
+
+	return types.Condition{
+		Selector:        selector,
+		WaitForSelector: waitForSelector,
+		Extract:         extract,
+		Operator:        operator,
+		Attribute:       attribute,
+		Value:           value,
+	}, nil
+}
+
 // ValidateSpec validates a spec and returns it normalized, with blanks
 // collapsed away.
+//
+// A spec sent in the single-condition shape that came before Conditions was a
+// list has already been hoisted into one by TaskSpec.UnmarshalJSON, so there is
+// only one shape to validate here.
 func ValidateSpec(candidate *types.TaskSpec) (*types.TaskSpec, error) {
 	if candidate == nil {
 		return nil, utils.Fail("spec", "`spec` must be an object.")
@@ -152,64 +263,40 @@ func ValidateSpec(candidate *types.TaskSpec) (*types.TaskSpec, error) {
 		return nil, err
 	}
 
-	selector, err := requireString(candidate.Selector, "selector", "`selector`")
+	match, err := validateMatch(candidate.Match)
 	if err != nil {
 		return nil, err
 	}
 
-	waitForSelector := strings.TrimSpace(candidate.WaitForSelector)
-
-	extract, err := validateExtract(candidate.Extract)
-	if err != nil {
-		return nil, err
+	switch {
+	case len(candidate.Conditions) == 0:
+		return nil, utils.Fail("conditions", "A task needs at least one condition.")
+	case len(candidate.Conditions) > types.MaxConditions:
+		return nil, utils.Fail("conditions",
+			"A task can have at most %d conditions, got %d.",
+			types.MaxConditions, len(candidate.Conditions))
 	}
 
-	operator, err := validateOperator(candidate.Operator, extract)
-	if err != nil {
-		return nil, err
-	}
-
-	message, err := validateMessage(candidate.Message)
-	if err != nil {
-		return nil, err
-	}
-
-	// Only meaningful for `attribute`, and dropped otherwise so a leftover
-	// value from switching kinds in the form does not linger in the stored spec.
-	attribute := ""
-	if extract == types.ExtractAttribute {
-		attribute, err = requireString(candidate.Attribute, "attribute",
-			"`attribute` is required when extract is \"attribute\" and")
+	conditions := make([]types.Condition, len(candidate.Conditions))
+	for i := range candidate.Conditions {
+		conditions[i], err = validateCondition(&candidate.Conditions[i], i)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	value := ""
-	if !isValueless(operator) {
-		value, err = requireString(candidate.Value, "value",
-			fmt.Sprintf("`value` is required for operator %q and", string(operator)))
-		if err != nil {
-			return nil, err
-		}
-
-		if isNumericKind(extract) {
-			if _, err := strconv.ParseFloat(value, 64); err != nil {
-				return nil, utils.Fail("value",
-					"`value` must be a number when extract is %q, got %q.", string(extract), value)
-			}
-		}
+	// Last, so it can be checked against the condition count the spec actually
+	// ended up with.
+	message, err := validateMessage(candidate.Message, len(conditions))
+	if err != nil {
+		return nil, err
 	}
 
 	return &types.TaskSpec{
-		URL:             specURL,
-		Selector:        selector,
-		Extract:         extract,
-		Operator:        operator,
-		WaitForSelector: waitForSelector,
-		Attribute:       attribute,
-		Value:           value,
-		Message:         message,
+		URL:        specURL,
+		Match:      match,
+		Conditions: conditions,
+		Message:    message,
 	}, nil
 }
 

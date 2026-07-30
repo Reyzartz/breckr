@@ -25,11 +25,11 @@ run-now   ──┘                                   │
                                                                                └─> webhook
 ```
 
-A task is a **declarative spec** stored in SQLite — a URL, a CSS selector, what
-to pull out of it, and how to test the result. One generic executor interprets
-it at run time. Nothing you type is ever evaluated as code, which is what makes
-it safe to author tasks from a dashboard that has no authentication in front
-of it.
+A task is a **declarative spec** stored in SQLite — a URL, and one or more
+conditions, each a CSS selector, what to pull out of it, and how to test the
+result. One generic executor interprets it at run time. Nothing you type is ever
+evaluated as code, which is what makes it safe to author tasks from a dashboard
+that has no authentication in front of it.
 
 Go backend, TypeScript dashboard:
 
@@ -83,17 +83,41 @@ Press **Add task** in the dashboard. A task answers four questions:
 
 | | |
 |---|---|
-| **Where** | a `http`/`https` URL, and a CSS selector on that page |
-| **What** | `text`, `number`, `attribute`, `count` (how many match) or `exists` |
-| **When to alert** | an operator and a value — `is less than 100`, `contains "in stock"`, `changed since the last run` |
+| **Where** | a `http`/`https` URL |
+| **What** | one or more conditions, each a CSS selector plus `text`, `number`, `attribute`, `count` (how many match) or `exists` |
+| **When to alert** | per condition, an operator and a value — `is less than 100`, `contains "in stock"`, `changed since the last run` |
 | **What to say** | an optional message template |
 
 Only the operators that make sense for the chosen extraction are offered, and
 the server rejects an invalid pairing on save rather than letting it become a
 condition that can never fire.
 
-The message template supports `{{value}}`, `{{raw}}`, `{{url}}` and `{{name}}`.
-It is filled in by substitution, never evaluated.
+### More than one condition
+
+A task can watch up to ten things, all on the same page — one navigation per
+run. They combine with **all of these are true** or **any of these is true**,
+chosen once for the whole task; there is no nesting. Watching two sites is two
+tasks.
+
+The combined answer is what drives the alert, so a task set to `all` alerts once
+when the last of its conditions starts matching. Each condition's own outcome is
+recorded on the run, so run history says which one changed.
+
+`changed` keys its history on what a condition extracts rather than on its
+position, so reordering the list does not make one condition compare against
+another's last value. Editing a condition simply leaves it with nothing to
+compare against, which reads as no change — at most one skipped alert, never a
+spurious one.
+
+The message template supports `{{value}}`, `{{raw}}`, `{{url}}` and `{{name}}`,
+plus `{{value1}}` / `{{raw1}}` … one pair per condition. `{{value}}` is the
+first condition's, so a template written when the task had one keeps working. An
+index the task has no condition for is rejected on save. Templates are filled in
+by substitution, never evaluated.
+
+A spec stored before conditions became a list is read back as a task with one —
+the flat shape is hoisted on decode, so nothing had to be rewritten in the
+database, and an API client still sending it keeps working.
 
 Tasks are stored in SQLite and scheduled the moment you save them — **no
 rebuild, no restart**, in development or in production. Editing the schedule

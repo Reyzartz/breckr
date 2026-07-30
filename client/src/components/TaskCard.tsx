@@ -196,8 +196,12 @@ export function TaskCard({
         </Text>
         {task.spec && (
           <Text variant="caption" color="muted">
+            {/* The first selector, plus a count — a card is a summary, and the
+                full list is one click away in the form. */}
             <span className="truncate" title={task.spec.url}>
-              {task.spec.selector} on {hostname(task.spec.url)}
+              {task.spec.conditions[0]?.selector} on {hostname(task.spec.url)}
+              {task.spec.conditions.length > 1 &&
+                ` +${task.spec.conditions.length - 1} more`}
             </span>
           </Text>
         )}

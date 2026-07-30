@@ -1,7 +1,9 @@
 import type {
   ChannelType,
   CompareOperator,
+  Condition,
   ExtractKind,
+  MatchMode,
   NotificationReason,
   NotifyMode,
   RunStatus,
@@ -293,11 +295,33 @@ export const MAX_INTERVAL: Record<"minutes" | "hours", number> = {
   hours: 23,
 };
 
-export const DEFAULT_SPEC: TaskSpec = {
-  url: "",
+/**
+ * How the form offers to combine conditions. Mirrors MatchModes on the server.
+ *
+ * `all` is first because it is the default and the one a single-condition task
+ * silently uses.
+ */
+export const MATCH_MODE_OPTIONS: readonly { value: MatchMode; label: string }[] = [
+  { value: "all", label: "all of these are true" },
+  { value: "any", label: "any of these is true" },
+];
+
+/**
+ * Matches MaxConditions on the server, which is the authority — this only keeps
+ * the form from offering an "Add" the save would reject.
+ */
+export const MAX_CONDITIONS = 10;
+
+export const DEFAULT_CONDITION: Condition = {
   selector: "",
   extract: "text",
   operator: "changed",
+};
+
+export const DEFAULT_SPEC: TaskSpec = {
+  url: "",
+  match: "all",
+  conditions: [DEFAULT_CONDITION],
 };
 
 export const THEMES = ["light", "dark"] as const;

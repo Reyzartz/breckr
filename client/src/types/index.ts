@@ -135,6 +135,30 @@ export type CompareOperator =
   | "changed";
 
 /**
+ * How a task's conditions combine into the single true/false that drives the
+ * alert. One mode for the whole task — there is no nesting.
+ */
+export type MatchMode = "all" | "any";
+
+/**
+ * One thing to watch on the page.
+ *
+ * Every condition in a task reads the same page — the URL lives on the spec.
+ * Watching two sites is two tasks.
+ */
+export interface Condition {
+  selector: string;
+  /** Waited for before extraction. Defaults to `selector` when omitted. */
+  waitForSelector?: string;
+  extract: ExtractKind;
+  /** Required when `extract` is "attribute", ignored otherwise. */
+  attribute?: string;
+  operator: CompareOperator;
+  /** Required except for "is_true", "is_false" and "changed". */
+  value?: string;
+}
+
+/**
  * A task's behavior, declared rather than coded.
  *
  * Interpreted at run time by the executor, so nothing here is ever evaluated as
@@ -143,28 +167,50 @@ export type CompareOperator =
 export interface TaskSpec {
   /** http/https only; it is handed straight to a real browser. */
   url: string;
-  /** Waited for before extraction. Defaults to `selector` when omitted. */
-  waitForSelector?: string;
-  selector: string;
-  extract: ExtractKind;
-  /** Required when `extract` is "attribute", ignored otherwise. */
-  attribute?: string;
-  operator: CompareOperator;
-  /** Required except for "is_true", "is_false" and "changed". */
-  value?: string;
-  /** Alert body. Supports {{value}}, {{raw}}, {{url}} and {{name}}. */
+  /** How `conditions` combine. Omitted means "all". */
+  match?: MatchMode;
+  /**
+   * At least one, at most MAX_CONDITIONS. Order is the order they are checked
+   * and the order {{value1}}, {{value2}} … refer to.
+   *
+   * The server accepts the flat single-condition shape this replaced and hoists
+   * it into a one-element list, so a stored task written before this existed
+   * still opens in the form.
+   */
+  conditions: Condition[];
+  /**
+   * Alert body. Supports {{value}}, {{raw}}, {{url}}, {{name}} and the indexed
+   * {{value1}} / {{raw1}} … one pair per condition.
+   */
   message?: string;
 }
 
-/** What a spec-driven run returns, and what is stored as the run's result. */
-export interface TaskResult {
+/** What one condition saw on one run. */
+export interface CheckResult {
+  /** Identifies the condition that produced it, so history survives a reorder. */
+  key: string;
   /** The typed extraction: number, string, or boolean depending on the kind. */
   value: number | string | boolean;
   /** The untouched text the value was derived from. */
   raw: string;
+  /** Whether this condition's operator matched. */
+  met: boolean;
+}
+
+/** What a spec-driven run returns, and what is stored as the run's result. */
+export interface TaskResult {
+  /** The first condition's extraction, repeated so {{value}} keeps its meaning. */
+  value: number | string | boolean;
+  /** The first condition's untouched text, for the same reason. */
+  raw: string;
   url: string;
   /** ISO-8601. */
   checkedAt: string;
+  /**
+   * One entry per condition, in spec order. Absent on a result stored before
+   * conditions became a list.
+   */
+  checks?: CheckResult[];
 }
 
 // --- Schedules -------------------------------------------------------------
