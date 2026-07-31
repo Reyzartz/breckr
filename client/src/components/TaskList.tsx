@@ -10,7 +10,7 @@ interface TaskListProps {
   onEdit: (task: TaskWithStatus) => void;
   onDelete: (id: string) => Promise<void>;
   onCreate: () => void;
-  busyTaskId: string | null;
+  isBusy: (id: string) => boolean;
 }
 
 export function TaskList({
@@ -20,7 +20,7 @@ export function TaskList({
   onEdit,
   onDelete,
   onCreate,
-  busyTaskId,
+  isBusy,
 }: TaskListProps) {
   if (tasks.length === 0) {
     return (
@@ -49,7 +49,7 @@ export function TaskList({
           onRunNow={onRunNow}
           onEdit={onEdit}
           onDelete={onDelete}
-          busy={busyTaskId === task.id}
+          busy={isBusy(task.id)}
         />
       ))}
     </div>

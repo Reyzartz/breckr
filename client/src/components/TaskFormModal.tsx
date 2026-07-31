@@ -21,8 +21,8 @@ import type {
   TaskWithStatus,
   TestTaskResponse,
 } from "../types/index.ts";
-import { testTask } from "../services/monitor.service.ts";
-import { ApiError, toErrorMessage } from "../apis/client.ts";
+import { useTasks } from "../hooks/useTasks.ts";
+import { ApiError, toErrorMessage } from "../services/api/index.ts";
 import {
   DEFAULT_NOTIFY_MODE,
   DEFAULT_SCHEDULE,
@@ -228,6 +228,7 @@ export function TaskFormModal({
   onManageChannels,
 }: TaskFormModalProps) {
   const isEditing = task !== null;
+  const { testTask } = useTasks();
 
   const [form, setForm] = useState<FormState>(() => toFormState(task));
   // Held outside FormState, which is flat and string-typed so `bind` can drive

@@ -36,7 +36,7 @@ Go backend, TypeScript dashboard:
 | | |
 |---|---|
 | `server/` | Go. Scheduler + API + the browser driver. `main.go` → `internal/{app,routes,api,…}`. |
-| `client/` | React + Vite on `brake-ui`. Layered: `components` → `hooks` → `services` → `apis`. |
+| `client/` | React + Vite on `brake-ui`, routed with TanStack Router and TanStack Query on axios. |
 
 Inside `server/internal`:
 
@@ -52,6 +52,17 @@ Inside `server/internal`:
 | `notifier` | a transport per channel kind, and the dispatcher that fans an alert out to all of a task's channels |
 | `crypto` | AES-GCM at rest for channel credentials |
 | `types` | the HTTP contract, mirrored by `client/src/types` |
+
+Inside `client/src`:
+
+| | |
+|---|---|
+| `routes` | one file per page — `/` (dashboard), `/runs` (history), `/channels` — plus `__root.tsx` for the shared header/nav. `@tanstack/router-plugin` generates `routeTree.gen.ts` from this folder; it's gitignored, not checked in. |
+| `hooks` | one `use<Resource>` per resource (`useTasks`, `useRuns`, `useHealth`, `useChannels`), each a thin TanStack Query wrapper: the query plus every mutation on it, polling on `config.pollIntervalMs`. Components stay presentational. |
+| `services/api` | one axios-backed `<Resource>Service` class per resource, all extending `ApiClient` in `base.ts`, which unwraps the `{ data }` envelope and turns a failure into an `ApiError` carrying the server's `field`. |
+| `components` | presentational, prop-driven; unchanged in shape by the router migration. |
+| `constants/queryKeys.ts` | one array root per resource — `[...QueryKeys.runs, filters]` is how a hook narrows to its own cache entry without a naming collision. |
+| `types` | see [The contract on two sides](#the-contract-on-two-sides). |
 
 ## Setup
 
@@ -76,6 +87,18 @@ make start-client
 
 `make start` runs both. Other targets: `make build`, `make typecheck`,
 `make test`, `make docker-up`.
+
+## Pages
+
+| Route | |
+|---|---|
+| `/` | Tasks, the warnings that matter before you wait on an alert (browser down, nothing configured to notify, a task with no channels), and the last few runs |
+| `/runs` | The full run history — filters and paging are URL search params (`?taskId=…&status=…&offset=…`), so a filtered view is a link you can send someone, not state that resets on reload |
+| `/channels` | Create, edit, mute, delete and test delivery destinations |
+
+Creating and editing a task stays a modal reachable from `/` rather than its own
+route: a spec is complex enough that a full-page context switch would lose the
+task list you're authoring it against.
 
 ## Tasks
 

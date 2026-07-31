@@ -12,6 +12,10 @@ import type {
   TaskSpec,
 } from "../types/index.ts";
 
+/** Rows in the dashboard's compact "recent runs" panel — the full, filterable,
+ * paginated table lives on /runs. */
+export const RECENT_RUNS_LIMIT = 8;
+
 /** Runs per page in the history table. */
 export const PAGE_SIZE = 25;
 
