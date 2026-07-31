@@ -1,10 +1,22 @@
 node_modules
 **/node_modules
 **/dist
+# Never let this into a build context. It holds secret.key, which the database
+# is unreadable without -- and which would otherwise be baked into a public
+# image the first time anyone writes a `COPY . .`.
 data
 .env
+# The root pattern above is anchored, so it misses server/.env.
+**/.env
 .git
 .claude
 .DS_Store
 *.log
 server/breckr-server
+
+# Not part of any image, and every file here is a cache miss waiting to happen.
+.github
+deploy
+Makefile
+docker-compose.yml
+*.md
