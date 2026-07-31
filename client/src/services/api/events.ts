@@ -1,5 +1,5 @@
-import { config } from "../config/index.ts";
-import type { ChangeEvent, MonitorResource } from "../types/index.ts";
+import { config } from "../../config/index.ts";
+import type { ChangeEvent, MonitorResource } from "../../types/index.ts";
 
 /**
  * Absolute ws(s):// URL for the change stream.
@@ -9,10 +9,7 @@ import type { ChangeEvent, MonitorResource } from "../types/index.ts";
  * server serves both itself in production, and https upgrades to wss.
  */
 export function eventsUrl(): string {
-  const url = new URL(
-    `${config.apiBasePath}${config.eventsPath}`,
-    location.href
-  );
+  const url = new URL(`${config.apiBaseUrl}${config.eventsPath}`, location.href);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return url.toString();
 }

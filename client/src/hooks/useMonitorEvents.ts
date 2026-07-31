@@ -1,41 +1,45 @@
 import { useEffect, useRef, useState } from "react";
-import { eventsUrl, parseChangeEvent } from "../apis/events.api.ts";
+import { useQueryClient, type QueryKey } from "@tanstack/react-query";
+import { eventsUrl, parseChangeEvent } from "../services/api/events.ts";
 import { config } from "../config/index.ts";
+import { QueryKeys } from "../constants/queryKeys.ts";
 import type { MonitorResource } from "../types/index.ts";
 
 export type ConnectionState = "connecting" | "open" | "reconnecting";
 
-interface UseMonitorEventsOptions {
-  /**
-   * Called with the resources that changed, and with `undefined` — meaning all
-   * of them — whenever a full resync is owed.
-   *
-   * A resync is owed on every connect, because a socket that has just come up
-   * cannot know what it missed while it was down. Loading the initial data from
-   * there rather than separately is deliberate: it means the subscription is
-   * already live before the first fetch, so there is no window in which a change
-   * is announced to nobody.
-   */
-  onChange: (resources: readonly MonitorResource[] | undefined) => void;
-}
+const RESOURCE_QUERY_KEYS: Record<MonitorResource, QueryKey> = {
+  tasks: QueryKeys.tasks,
+  runs: QueryKeys.runs,
+  health: QueryKeys.health,
+  channels: QueryKeys.channels,
+};
+
+const ALL_RESOURCES = Object.keys(RESOURCE_QUERY_KEYS) as MonitorResource[];
 
 /**
  * Owns the live connection, and nothing else.
  *
- * The dashboard has no polling loop: this socket is the only thing that tells it
- * to refetch. That makes staying connected the whole job — a socket that dropped
- * silently would leave the page frozen on stale data with no timer to save it,
- * so every close reconnects and every reconnect resyncs.
+ * This is what replaced every query's `refetchInterval`: instead of each hook
+ * polling on its own timer, the server pushes "these resources changed" and
+ * this invalidates exactly the query keys it named -- `invalidateQueries` with
+ * a resource's root key reaches every filtered variant under it (see
+ * `QueryKeys`), so a paginated or filtered `useRuns` still catches up.
+ *
+ * The initial load is not this hook's job -- every `useQuery` already fetches
+ * on mount regardless of the socket. This only invalidates on an actual change
+ * message, and on reconnecting after having been open before: a socket that
+ * dropped and came back cannot know what it missed while it was down, and the
+ * queries mounted this whole time are exactly the ones that need to catch up.
  */
-export function useMonitorEvents({
-  onChange,
-}: UseMonitorEventsOptions): ConnectionState {
+export function useMonitorEvents(): ConnectionState {
   const [connection, setConnection] = useState<ConnectionState>("connecting");
+  const queryClient = useQueryClient();
 
-  // Held in a ref so the effect below depends on nothing and never tears the
-  // socket down to pick up a new render's callback.
-  const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
+  // Read inside the socket's callbacks without making the connect effect
+  // depend on it, so the socket is never torn down to pick up a new
+  // queryClient identity.
+  const queryClientRef = useRef(queryClient);
+  queryClientRef.current = queryClient;
 
   useEffect(() => {
     let socket: WebSocket | null = null;
@@ -47,6 +51,14 @@ export function useMonitorEvents({
     // socket.
     let disposed = false;
 
+    const invalidate = (resources: readonly MonitorResource[] | undefined) => {
+      for (const resource of resources ?? ALL_RESOURCES) {
+        void queryClientRef.current.invalidateQueries({
+          queryKey: RESOURCE_QUERY_KEYS[resource],
+        });
+      }
+    };
+
     const connect = () => {
       if (disposed) return;
 
@@ -54,37 +66,26 @@ export function useMonitorEvents({
 
       socket.onopen = () => {
         attempt = 0;
+        // Only a *re*connect owes a resync -- the first connect's queries are
+        // already covered by their own mount-triggered fetch, and invalidating
+        // here too would just fire a redundant one right behind it.
+        const isReconnect = everOpened;
         everOpened = true;
         setConnection("open");
-        // Everything, because whatever changed while this socket was down was
-        // announced to nobody. On the first connect this is also what loads the
-        // page.
-        onChangeRef.current(undefined);
+        if (isReconnect) invalidate(undefined);
       };
 
       socket.onmessage = (event: MessageEvent<unknown>) => {
         const change = parseChangeEvent(event.data);
-        if (change) onChangeRef.current(change.resources);
+        if (change) invalidate(change.resources);
       };
 
-      // onerror is always followed by onclose, so scheduling the retry from
-      // one place avoids racing two reconnects against each other.
       socket.onclose = () => {
-        const neverOpened = !everOpened;
         socket = null;
         if (disposed) return;
 
         setConnection("reconnecting");
         scheduleReconnect();
-
-        // The very first attempt failing means the page has no data and nothing
-        // else is going to fetch it. Load it over plain HTTP instead, so a
-        // dashboard behind something that strips websocket upgrades still works
-        // -- as a stale one that says so, rather than as a blank page.
-        if (neverOpened) {
-          everOpened = true;
-          onChangeRef.current(undefined);
-        }
       };
     };
 

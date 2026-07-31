@@ -387,15 +387,6 @@ export interface TestTaskResponse {
   error?: string;
 }
 
-/** Outcome of a single run, as recorded on the run row. */
-export interface RunOutcome {
-  runId: number;
-  status: RunStatus;
-  conditionMet: boolean;
-  notified: boolean;
-  error?: string;
-}
-
 /**
  * Answer to POST /api/tasks/:id/run-now.
  *

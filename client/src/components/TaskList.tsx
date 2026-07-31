@@ -10,11 +10,7 @@ interface TaskListProps {
   onEdit: (task: TaskWithStatus) => void;
   onDelete: (id: string) => Promise<void>;
   onCreate: () => void;
-  /**
-   * Asked per task rather than compared against one id: a task is also busy
-   * while its run is in flight, and that is read off the task's own last run.
-   */
-  isTaskBusy: (task: TaskWithStatus) => boolean;
+  isBusy: (id: string) => boolean;
 }
 
 export function TaskList({
@@ -24,7 +20,7 @@ export function TaskList({
   onEdit,
   onDelete,
   onCreate,
-  isTaskBusy,
+  isBusy,
 }: TaskListProps) {
   if (tasks.length === 0) {
     return (
@@ -53,7 +49,7 @@ export function TaskList({
           onRunNow={onRunNow}
           onEdit={onEdit}
           onDelete={onDelete}
-          busy={isTaskBusy(task)}
+          busy={isBusy(task.id)}
         />
       ))}
     </div>

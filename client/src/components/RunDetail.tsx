@@ -7,9 +7,8 @@ import {
   ModalHeader,
   Text,
 } from "brake-ui";
-import { useEffect, useState } from "react";
-import type { NotificationAttempt, Run } from "../types/index.ts";
-import { fetchRun } from "../apis/runs.api.ts";
+import type { Run } from "../types/index.ts";
+import { useRun } from "../hooks/useRuns.ts";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { NotificationBadge } from "./NotificationBadge.tsx";
 import { absoluteTime, duration, prettyJson } from "../utils/format.ts";
@@ -27,32 +26,17 @@ export function RunDetail({ run, onClose }: RunDetailProps) {
   /**
    * The per-channel breakdown, fetched on open.
    *
-   * The run list does not carry attempts — one extra query per row would be
-   * paid on every refetch to render a badge that does not show them. So the
-   * detail view asks for its own.
+   * The run list does not carry attempts — one extra query per row would be paid
+   * on every poll to render a badge that does not show them. So the detail view
+   * asks for its own, keyed on the run that was clicked; `run` itself already
+   * has everything else needed to render immediately.
+   *
+   * A failed fetch degrades to the aggregate `run` already carries rather than
+   * an error over a run that displays fine without it — `attempts` just stays
+   * empty.
    */
-  const [attempts, setAttempts] = useState<NotificationAttempt[] | null>(null);
-
-  useEffect(() => {
-    if (!run) return;
-
-    setAttempts(null);
-    let current = true;
-
-    void fetchRun(run.id)
-      .then((detailed) => {
-        if (current) setAttempts(detailed.attempts ?? []);
-      })
-      // A failed fetch degrades to the aggregate the run already carries rather
-      // than an error over a run that displays fine without it.
-      .catch(() => {
-        if (current) setAttempts([]);
-      });
-
-    return () => {
-      current = false;
-    };
-  }, [run]);
+  const { run: detailed } = useRun(run?.id ?? null);
+  const attempts = detailed?.attempts ?? [];
 
   if (!run) return null;
 
@@ -106,7 +90,7 @@ export function RunDetail({ run, onClose }: RunDetailProps) {
               Which channel failed is the question you actually have, so the
               per-channel rows come first.
             */}
-            {attempts && attempts.length > 0 && (
+            {attempts.length > 0 && (
               <div className="mb-2 grid gap-1">
                 {attempts.map((attempt) => (
                   <div

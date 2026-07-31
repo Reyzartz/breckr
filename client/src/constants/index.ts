@@ -12,19 +12,12 @@ import type {
   TaskSpec,
 } from "../types/index.ts";
 
+/** Rows in the dashboard's compact "recent runs" panel — the full, filterable,
+ * paginated table lives on /runs. */
+export const RECENT_RUNS_LIMIT = 8;
+
 /** Runs per page in the history table. */
 export const PAGE_SIZE = 25;
-
-/**
- * How long "Run now" stays optimistically busy before giving up on it.
- *
- * The button normally hands over to server truth the moment the run row arrives
- * as `running`. This only covers the case where that never happens — a run
- * queued behind a long one on the browser mutex, or an event that was missed —
- * so it is generous rather than tight. Being wrong here only means a button
- * that says "Running…" for a while too long.
- */
-export const RUN_PENDING_TIMEOUT_MS = 60_000;
 
 /**
  * Runtime values live here, not in `../types`, which is the types-only mirror
