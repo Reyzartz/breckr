@@ -1,0 +1,67 @@
+name: ci
+
+# The gate every change goes through before it can be released. release.yml
+# calls the two test jobs here rather than repeating them, so there is exactly
+# one definition of "the tests pass".
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_call:
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+      - run: go vet ./...
+        working-directory: server
+      - run: go test ./...
+        working-directory: server
+
+  client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # brake-ui's lockfile entry resolves over ssh (see the Dockerfile).
+      # Actions' runners usually rewrite this for github.com automatically, but
+      # the rewrite is made explicit so the step does not depend on that.
+      - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: client
+      - run: npm run typecheck
+        working-directory: client
+      # A type error and a build error are different failures -- the image
+      # build only exercises the second, so this is what actually proves the
+      # Dockerfile's client stage will succeed.
+      - run: npm run build
+        working-directory: client
+
+  image:
+    runs-on: ubuntu-latest
+    needs: [server, client]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # amd64 only and no push: this exists to catch a broken Dockerfile before
+      # release.yml spends QEMU time on two architectures and two variants of
+      # one that would have failed anyway.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          push: false
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: standalone
+          push: false

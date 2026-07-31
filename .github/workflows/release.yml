@@ -1,0 +1,101 @@
+name: release
+
+# Publishes reyzartz/breckr to Docker Hub on a version tag. `needs: test` means
+# a broken tag never reaches Docker Hub -- a bad commit is only ever yours, but
+# a bad published tag is something strangers pull.
+#
+# workflow_dispatch is here for a manual rebuild of the current tag (a base
+# image respin, say) without having to cut a new version to trigger one.
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Reuses ci.yml's server and client jobs rather than repeating their steps,
+  # so there is exactly one definition of "the tests pass" between the two
+  # workflows.
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: slim
+            target: runtime
+          - variant: standalone
+            target: standalone
+    steps:
+      - uses: actions/checkout@v4
+
+      # apk in the runtime stages runs on the target architecture, so QEMU is
+      # still needed even though setup-buildx-action's platform= on the build
+      # stages (see the Dockerfile) keeps the actual compiling native.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # For v1.2.3, the slim leg produces 1.2.3, 1.2, 1 and latest; the
+      # standalone leg produces 1.2.3-standalone, 1.2-standalone, 1-standalone,
+      # latest-standalone, and the bare moving tag `standalone`.
+      #
+      # `suffix=-standalone,onlatest=true` is what turns latest into
+      # latest-standalone instead of clobbering the slim image's latest tag.
+      # The bare `standalone` tag needs its own entry with an empty per-tag
+      # suffix to override that global flavor -- without it this would produce
+      # standalone-standalone instead.
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: reyzartz/breckr
+          flavor: |
+            latest=auto
+            ${{ matrix.variant == 'standalone' && 'suffix=-standalone,onlatest=true' || '' }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref_name, 'v0.') }}
+            type=raw,value=standalone,suffix=,enable=${{ matrix.variant == 'standalone' }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: ${{ matrix.target }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Separate cache scopes per variant: the two share the client-build
+          # and server-build stages but diverge at runtime, and one shared
+          # scope would have them evict each other's layers.
+          cache-from: type=gha,scope=${{ matrix.variant }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.variant }}
+          # Buildx's default attestation manifest renders as an extra
+          # unknown/unknown platform row on the Docker Hub tag page. Off by
+          # default here; turn on mode=max instead if SLSA provenance is worth
+          # that to you.
+          provenance: false
+
+  docker-hub-description:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: reyzartz/breckr
+          readme-filepath: ./DOCKER.md
+          short-description: "Self-hosted browser task monitor -- scheduled checks, conditions, and alerts"
