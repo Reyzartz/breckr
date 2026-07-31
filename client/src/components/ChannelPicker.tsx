@@ -35,7 +35,7 @@ export function ChannelPicker({
   };
 
   return (
-    <div className="grid gap-1">
+    <div className="grid grid-cols-1 gap-1">
       <Text variant="caption" color="muted">
         Alert via
       </Text>

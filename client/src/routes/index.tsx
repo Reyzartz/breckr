@@ -115,13 +115,19 @@ function Dashboard() {
         </div>
       )}
 
-      <div
-        className="grid flex-1 gap-6 overflow-hidden"
-        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))" }}
-      >
-        <section>
+      {/*
+        Only the fixed desktop shell clips here. Below xl the page scrolls as
+        one document, so trapping overflow would strand the bottom of whichever
+        column is longer.
+
+        Splitting at xl rather than lg: at 1024 each column is ~470px, which is
+        narrower than the run table's own minimum, so the second column bought
+        a horizontal scrollbar rather than a second column.
+      */}
+      <div className="grid flex-1 grid-cols-1 gap-6 xl:grid-cols-2 xl:overflow-hidden">
+        <section className="flex min-w-0 flex-col gap-3 xl:overflow-hidden">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <Text variant="h4" as="h2">
+            <Text variant="h3" as="h2">
               Tasks
             </Text>
             <Button
@@ -134,7 +140,12 @@ function Dashboard() {
               Add task
             </Button>
           </div>
-          <div className="mt-3">
+          {/*
+            The column owns its own scroll in the fixed shell, so a long task
+            list and a long run list scroll past each other rather than the
+            shorter one leaving a column of dead space.
+          */}
+          <div className="xl:min-h-0 xl:flex-1 xl:overflow-auto xl:pr-1">
             <TaskList
               tasks={tasks}
               onToggle={toggleTaskEnabled}

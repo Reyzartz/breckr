@@ -40,7 +40,14 @@ export function TaskList({
   }
 
   return (
-    <div className="grid gap-3">
+    /*
+      Two columns exactly where the dashboard itself is one. Between md and xl
+      the task list has the full page width to itself, and a single column of
+      950px-wide cards puts a task's name and its Run button at opposite ends
+      of the screen; past xl the dashboard takes the second column back for the
+      run panel, so the cards return to one.
+    */
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-1">
       {tasks.map((task) => (
         <TaskCard
           key={task.id}

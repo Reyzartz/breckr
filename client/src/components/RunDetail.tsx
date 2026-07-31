@@ -52,7 +52,12 @@ export function RunDetail({ run, onClose }: RunDetailProps) {
           <Badge variant="default">{run.trigger_source}</Badge>
         </div>
 
-        <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm">
+        {/*
+          Label above value on a phone — side by side, a long absolute
+          timestamp pushes the value column past the modal and truncates the
+          part that distinguishes one run from the next.
+        */}
+        <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-[auto_1fr] sm:gap-y-1.5">
           <Field label="Started" value={absoluteTime(run.started_at)} />
           <Field label="Finished" value={absoluteTime(run.finished_at)} />
           <Field
@@ -91,7 +96,7 @@ export function RunDetail({ run, onClose }: RunDetailProps) {
               per-channel rows come first.
             */}
             {attempts.length > 0 && (
-              <div className="mb-2 grid gap-1">
+              <div className="mb-2 grid grid-cols-1 gap-1">
                 {attempts.map((attempt) => (
                   <div
                     key={attempt.id}
@@ -136,7 +141,7 @@ export function RunDetail({ run, onClose }: RunDetailProps) {
       </ModalBody>
 
       <ModalFooter>
-        <Button variant="outlined" onClick={onClose}>
+        <Button variant="outlined" onClick={onClose} fullWidth className="sm:w-auto">
           Close
         </Button>
       </ModalFooter>
@@ -155,8 +160,8 @@ function Field({
 }) {
   return (
     <>
-      <dt className="text-text-muted">{label}</dt>
-      <dd className={mono ? "font-mono" : undefined}>{value}</dd>
+      <dt className="text-xs text-text-muted sm:text-sm">{label}</dt>
+      <dd className={mono ? "font-mono break-all" : "break-words"}>{value}</dd>
     </>
   );
 }

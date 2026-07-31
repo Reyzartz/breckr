@@ -438,8 +438,17 @@ export function TaskFormModal({
       />
 
       <ModalBody>
-        <div ref={scrollRef} className="grid max-h-[60vh] gap-4 overflow-y-auto pr-1">
-          <div className="grid gap-4 sm:grid-cols-2">
+        {/*
+          Taller on a phone, where the modal is nearly the whole screen and
+          every capped vh is a field the user has to scroll for. It stays under
+          ModalBody's own 70vh cap either way, so this stays the one scroller
+          rather than nesting inside a second one.
+        */}
+        <div
+          ref={scrollRef}
+          className="grid max-h-[62vh] grid-cols-1 gap-4 overflow-y-auto pr-1 sm:max-h-[60vh]"
+        >
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Input
               label="Name"
               value={form.name}
@@ -476,7 +485,7 @@ export function TaskFormModal({
             fullWidth
           />
 
-          <div className="grid gap-3">
+          <div className="grid grid-cols-1 gap-3">
             <Select
               label="Alert when"
               {...bind("match")}
@@ -580,7 +589,7 @@ export function TaskFormModal({
 
           {testResult?.ok && (
             <Alert variant={testResult.conditionMet ? "warning" : "success"}>
-              <div className="grid gap-1">
+              <div className="grid grid-cols-1 gap-1">
                 {/* Per condition, so a task watching several says which
                     selector produced which value rather than only the first. */}
                 {(testResult.result?.checks ?? []).map((check, index) => (
@@ -610,17 +619,24 @@ export function TaskFormModal({
       </ModalBody>
 
       <ModalFooter>
-        <div className="flex w-full flex-wrap items-center justify-between gap-2">
+        {/*
+          One row at every width: ModalFooter clips itself to max-h-14, so a
+          second row of buttons would be silently cut off rather than wrapped.
+          Test keeps the left edge and the pair that closes the form keeps the
+          right, which is where the thumb already is.
+        */}
+        <div className="flex w-full items-center gap-2">
           <Button
             variant="outlined"
             icon={FlaskConical}
             onClick={() => void handleTest()}
             disabled={testing || saving}
+            className="shrink-0"
           >
             {testing ? "Testing…" : "Test"}
           </Button>
 
-          <div className="flex items-center gap-2">
+          <div className="ml-auto flex min-w-0 items-center gap-2">
             <Button variant="ghost" onClick={onClose} disabled={saving}>
               Cancel
             </Button>

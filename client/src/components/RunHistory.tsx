@@ -1,24 +1,13 @@
-import { Badge, Button, Card, Select, Text } from "brake-ui";
+import { Button, Card, Select, Text } from "brake-ui";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import type {
-  Run,
-  RunStatus,
-  RunsResponse,
-  TaskWithStatus,
-} from "../types/index.ts";
-import { StatusBadge } from "./StatusBadge.tsx";
-import { NotificationBadge } from "./NotificationBadge.tsx";
+import type { Run, RunStatus, RunsResponse, TaskWithStatus } from "../types/index.ts";
+import { RunBadges, RunListItem, runOutcome } from "./RunSummary.tsx";
 import { PAGE_SIZE, RUN_STATUSES } from "../constants/index.ts";
 import type { RunFilters } from "../hooks/useRuns.ts";
-import {
-  absoluteTime,
-  duration,
-  firstLine,
-  summarize,
-  timeAgo,
-} from "../utils/format.ts";
+import { absoluteTime, duration, timeAgo } from "../utils/format.ts";
 
-const COLUMNS = ["When", "Task", "Status", "Result", "Took", ""] as const;
+/** Result carries the flexible width; the rest size to their content. */
+const COLUMNS = ["When", "Task", "Status", "Result", "Took", "Trigger"] as const;
 
 interface RunHistoryProps {
   data: RunsResponse | null;
@@ -48,19 +37,27 @@ export function RunHistory({
   const page = Math.floor(offset / PAGE_SIZE) + 1;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  const emptyMessage = "No runs match these filters.";
+
   return (
-    <section className="flex flex-col gap-4 items-stretch overflow-hidden">
-      <div className="flex gap-2">
-        <div className="flex-1 flex flex-col gap-2">
-          <Text variant="h4" as="h2">
+    <section className="flex min-w-0 flex-col gap-4 xl:overflow-hidden">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex items-baseline gap-2 sm:flex-col sm:gap-1">
+          <Text variant="h3" as="h2">
             Run history
           </Text>
           <Text variant="caption" color="muted">
             {total} run{total === 1 ? "" : "s"}
+            {loading ? " · refreshing…" : ""}
           </Text>
         </div>
 
-        <div className="max-w-72 flex gap-2">
+        {/*
+          Side by side rather than stacked even on the narrowest phone: two
+          half-width selects still clear a comfortable tap target, and keeping
+          them on one line leaves the runs themselves above the fold.
+        */}
+        <div className="flex gap-2 sm:max-w-72">
           <Select
             size="sm"
             label="Task"
@@ -70,6 +67,7 @@ export function RunHistory({
             onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
               onFilterChange({ taskId: e.target.value || undefined });
             }}
+            fullWidth
           >
             <option value="">All tasks</option>
             {tasks.map((task) => (
@@ -91,6 +89,7 @@ export function RunHistory({
                 status: value ? (value as RunStatus) : undefined,
               });
             }}
+            fullWidth
           >
             <option value="">Any status</option>
             {RUN_STATUSES.map((status) => (
@@ -102,21 +101,37 @@ export function RunHistory({
         </div>
       </div>
 
-      <Card size="lg" className="flex-1 overflow-hidden flex flex-col">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <Text variant="caption" color="muted">
-            {loading ? " · refreshing…" : ""}
-          </Text>
-        </div>
+      {/*
+        Below md the six-column table becomes a stack of cards. On a phone the
+        table is a horizontal scroll whose right half — result, duration — is
+        exactly what the page is for.
+      */}
+      <div className="grid grid-cols-1 gap-2 md:hidden">
+        {runs.length === 0 ? (
+          <Card>
+            <Text color="muted">{emptyMessage}</Text>
+          </Card>
+        ) : (
+          runs.map((run) => (
+            <RunListItem key={run.id} run={run} onSelect={onSelectRun} detailed />
+          ))
+        )}
+      </div>
 
-        <div className="overflow-auto flex-1">
+      <Card
+        size="lg"
+        className="hidden md:flex md:flex-col xl:min-h-0 xl:flex-1 xl:overflow-hidden"
+      >
+        <div className="overflow-auto xl:flex-1">
           <table className="w-full min-w-184 border-collapse text-left text-sm">
-            <thead className="sticky top-0 bg-surface z-10 border-b border-border">
+            <thead className="sticky top-0 z-10 border-b border-border bg-surface">
               <tr className="border-b border-border">
-                {COLUMNS.map((heading, i) => (
+                {COLUMNS.map((heading) => (
                   <th
-                    key={heading || `col-${String(i)}`}
-                    className="px-3 py-2 font-medium whitespace-nowrap text-text-muted"
+                    key={heading}
+                    className={`px-3 py-2 font-medium whitespace-nowrap text-text-muted ${
+                      heading === "Result" ? "w-full" : ""
+                    }`}
                   >
                     {heading}
                   </th>
@@ -126,11 +141,8 @@ export function RunHistory({
             <tbody>
               {runs.length === 0 && (
                 <tr>
-                  <td
-                    colSpan={COLUMNS.length}
-                    className="px-3 py-8 text-center"
-                  >
-                    <Text color="muted">No runs match these filters.</Text>
+                  <td colSpan={COLUMNS.length} className="px-3 py-8 text-center">
+                    <Text color="muted">{emptyMessage}</Text>
                   </td>
                 </tr>
               )}
@@ -141,7 +153,7 @@ export function RunHistory({
                   onClick={() => {
                     onSelectRun(run);
                   }}
-                  className="cursor-pointer border-b border-border transition-colors hover:bg-surface-hover h-16"
+                  className="h-16 cursor-pointer border-b border-border transition-colors hover:bg-surface-hover"
                 >
                   <td
                     className="px-3 whitespace-nowrap"
@@ -153,67 +165,62 @@ export function RunHistory({
                     {run.task_name ?? run.task_id}
                   </td>
                   <td className="px-3 whitespace-nowrap">
-                    <div className="flex items-center gap-1.5">
-                      <StatusBadge status={run.status} />
-                      <NotificationBadge run={run} />
-                      {/*
-                        Only when no alert was owed at all -- otherwise the
-                        notification badge already says what happened, and a
-                        failed delivery would read as a plain "met".
-                      */}
-                      {run.condition_met &&
-                        !run.notified &&
-                        !run.notification_status && (
-                          <Badge variant="info">met</Badge>
-                        )}
-                    </div>
+                    <RunBadges run={run} />
                   </td>
-                  <td className="max-w-md px-3">
+                  {/* w-full + max-w-0 is what makes truncate work in an
+                      auto-layout table: the cell takes the leftover width but
+                      reports no minimum, so the span clips instead of pushing. */}
+                  <td className="w-full max-w-0 px-3">
                     <span className="block truncate font-mono text-xs text-text-secondary">
-                      {run.status === "failed"
-                        ? firstLine(run.error)
-                        : summarize(run.result_summary)}
+                      {runOutcome(run)}
                     </span>
                   </td>
                   <td className="px-3 whitespace-nowrap text-text-muted">
                     {duration(run.started_at, run.finished_at) ?? "—"}
                   </td>
                   <td className="px-3 whitespace-nowrap text-text-muted">
-                    {run.trigger_source === "manual" ? "manual" : ""}
+                    {run.trigger_source === "manual" ? "manual" : "—"}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-
-        {pages > 1 && (
-          <div className="mt-4 flex items-center justify-between">
-            <Button
-              size="sm"
-              variant="ghost"
-              icon={ChevronLeft}
-              disabled={offset === 0}
-              onClick={onPreviousPage}
-            >
-              Previous
-            </Button>
-            <Text variant="caption" color="muted">
-              Page {page} of {pages}
-            </Text>
-            <Button
-              size="sm"
-              variant="ghost"
-              icon={ChevronRight}
-              iconPosition="right"
-              disabled={offset + PAGE_SIZE >= total}
-              onClick={onNextPage}
-            >
-              Next
-            </Button>
-          </div>
-        )}
       </Card>
+
+      {pages > 1 && (
+        /*
+          Spread to the edges on a phone, where both ends are within a thumb's
+          reach; gathered into a group from sm up, because at full width the
+          two buttons end up a screen apart with the page count marooned
+          between them.
+        */
+        <div className="flex items-center justify-between gap-2 sm:justify-center sm:gap-6">
+          <Button
+            variant="ghost"
+            icon={ChevronLeft}
+            disabled={offset === 0}
+            onClick={onPreviousPage}
+          >
+            Previous
+          </Button>
+          <Text variant="caption" color="muted" className="whitespace-nowrap">
+            <span className="hidden sm:inline">Page </span>
+            {page}
+            <span className="hidden sm:inline"> of</span>
+            <span className="sm:hidden"> /</span> {pages}
+          </Text>
+          <Button
+            variant="ghost"
+            icon={ChevronRight}
+            iconPosition="right"
+            disabled={offset + PAGE_SIZE >= total}
+            onClick={onNextPage}
+          >
+            Next
+          </Button>
+        </div>
+      )}
     </section>
   );
 }
