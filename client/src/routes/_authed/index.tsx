@@ -2,17 +2,17 @@ import { useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Alert, Button, Text } from "brake-ui";
 import { Plus } from "lucide-react";
-import type { Run, TaskWithStatus } from "../types/index.ts";
-import { TaskList } from "../components/TaskList.tsx";
-import { TaskFormModal } from "../components/TaskFormModal.tsx";
-import { RunDetail } from "../components/RunDetail.tsx";
-import { RecentRuns } from "../components/RecentRuns.tsx";
-import { useTasks } from "../hooks/useTasks.ts";
-import { useChannels } from "../hooks/useChannels.ts";
-import { useHealth } from "../hooks/useHealth.ts";
-import { toErrorMessage } from "../services/api/index.ts";
+import type { Run, TaskWithStatus } from "../../types/index.ts";
+import { TaskList } from "../../components/TaskList.tsx";
+import { TaskFormModal } from "../../components/TaskFormModal.tsx";
+import { RunDetail } from "../../components/RunDetail.tsx";
+import { RecentRuns } from "../../components/RecentRuns.tsx";
+import { useTasks } from "../../hooks/useTasks.ts";
+import { useChannels } from "../../hooks/useChannels.ts";
+import { useHealth } from "../../hooks/useHealth.ts";
+import { toErrorMessage } from "../../services/api/index.ts";
 
-export const Route = createFileRoute("/")({ component: Dashboard });
+export const Route = createFileRoute("/_authed/")({ component: Dashboard });
 
 /**
  * Enabled tasks that alert nowhere.

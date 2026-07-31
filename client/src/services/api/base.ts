@@ -54,7 +54,35 @@ function isErrorResponse(value: unknown): value is ErrorResponse {
 const client = axios.create({
   baseURL: config.apiBaseUrl,
   timeout: config.apiTimeoutMs,
+  // A no-op in both of the modes above, since same-origin requests send cookies
+  // regardless. It is here so that anyone who does serve the dashboard from a
+  // different origin gets the session cookie sent, rather than a puzzling 401
+  // against a server that already sets AllowCredentials.
+  withCredentials: true,
 });
+
+/**
+ * What to do when the server says the session is gone.
+ *
+ * Set from `main.tsx` rather than imported, because this module is deliberately
+ * React-free: it cannot reach `useNavigate`, and a `window.location` assignment
+ * would turn an expired session into a full page reload in the middle of
+ * whatever the user was doing.
+ */
+let onUnauthorized: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: () => void) {
+  onUnauthorized = handler;
+}
+
+/**
+ * Runs that handler. Called by the interceptor below, and by the event socket,
+ * which discovers the same fact a different way -- its handshake is rejected
+ * before there is any response for an interceptor to see.
+ */
+export function notifyUnauthorized() {
+  onUnauthorized?.();
+}
 
 /**
  * Normalizes every rejection into an ApiError, in one place.
@@ -73,6 +101,14 @@ client.interceptors.response.use(
     const message = isErrorResponse(body)
       ? body.error
       : axiosError.message || `Request failed with status ${String(status)}`;
+
+    // Everything under /auth/ is excluded, and that exclusion is load-bearing:
+    // a wrong password is itself a 401, so without it every failed login would
+    // bounce the user to the login page they are already on and throw away the
+    // message telling them what went wrong.
+    if (status === 401 && !(axiosError.config?.url ?? "").startsWith("/auth/")) {
+      notifyUnauthorized();
+    }
 
     return Promise.reject(
       new ApiError(message, status, isErrorResponse(body) ? body.field : undefined)
@@ -110,5 +146,10 @@ export class ApiClient {
   /** DELETE answers 204 with no body at all, so there is nothing to unwrap. */
   protected async delete(path: string): Promise<void> {
     await client.delete(path);
+  }
+
+  /** As above, for the one POST that answers 204 rather than an envelope. */
+  protected async postNoContent(path: string, body?: unknown): Promise<void> {
+    await client.post(path, body);
   }
 }

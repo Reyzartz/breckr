@@ -323,6 +323,23 @@ export interface RunsResponse {
   offset: number;
 }
 
+/**
+ * Whether this server asks for a password, and whether this browser has already
+ * given it.
+ *
+ * `required: false` means no password is configured at all — the dashboard then
+ * renders no login page and no logout button, which is the state every local
+ * development run and every loopback deployment is in.
+ */
+export interface AuthStatusResponse {
+  required: boolean;
+  authenticated: boolean;
+}
+
+export interface LoginRequest {
+  password: string;
+}
+
 export interface HealthResponse {
   ok: true;
   browser: {
