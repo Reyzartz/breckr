@@ -230,11 +230,11 @@ export function ChannelsPage() {
   );
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <div className="flex h-full flex-col gap-3 sm:gap-4">
       <div className="flex items-center gap-3">
         <Link
           to="/"
-          className="flex items-center gap-1 text-sm text-text-muted hover:text-text"
+          className="flex items-center gap-1 py-1 text-sm text-text-muted transition-colors hover:text-text"
         >
           <ArrowLeft size={14} aria-hidden="true" />
           Dashboard
@@ -242,8 +242,8 @@ export function ChannelsPage() {
       </div>
 
       <div className="flex items-center gap-2">
-        <Bell size={20} aria-hidden="true" />
-        <Text variant="h4" as="h2">
+        <Bell size={20} aria-hidden="true" className="shrink-0" />
+        <Text variant="h3" as="h2">
           Notification channels
         </Text>
       </div>
@@ -251,7 +251,7 @@ export function ChannelsPage() {
       {error && <Alert variant="error">{error}</Alert>}
 
       <Card size="lg" className="max-w-2xl">
-        <div className="grid gap-4">
+        <div className="grid grid-cols-1 gap-4">
           {testResult && (
             <Alert variant={testResult.ok ? "success" : "error"}>
               <span className="flex flex-wrap items-baseline gap-x-2">
@@ -275,14 +275,20 @@ export function ChannelsPage() {
                   history, but nothing will be sent anywhere.
                 </Text>
               ) : (
-                <div className="grid gap-2">
+                <div className="grid grid-cols-1 gap-2">
                   {channels.map((channel) => (
+                    /*
+                      A channel is a name plus three icon actions. Below sm the
+                      two halves stack and the actions sit at the left edge,
+                      which keeps them a full-size row rather than three ghost
+                      buttons squeezed against the right margin.
+                    */
                     <div
                       key={channel.id}
-                      className="flex flex-wrap items-center justify-between gap-2"
+                      className="flex flex-col gap-2 border-b border-border pb-2 last:border-b-0 last:pb-0 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:border-b-0 sm:pb-0"
                     >
-                      <div className="grid">
-                        <span className="flex items-center gap-2">
+                      <div className="grid min-w-0 grid-cols-1">
+                        <span className="flex flex-wrap items-center gap-2">
                           <Text>{channel.name}</Text>
                           <Badge variant="default">
                             {CHANNEL_TYPE_LABEL[channel.type]}
@@ -302,7 +308,7 @@ export function ChannelsPage() {
                         )}
                       </div>
 
-                      <div className="flex items-center gap-1">
+                      <div className="flex shrink-0 items-center gap-1">
                         <Button
                           size="sm"
                           variant="ghost"
@@ -357,7 +363,7 @@ export function ChannelsPage() {
             </>
           ) : (
             <>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Input
                   label="Name"
                   value={name}
@@ -403,7 +409,7 @@ export function ChannelsPage() {
 
               {CHANNEL_FIELDS[type].map(renderField)}
 
-              <div className="grid gap-1">
+              <div className="grid grid-cols-1 gap-1">
                 <Toggle
                   label="Enabled"
                   checked={enabled}
@@ -425,23 +431,34 @@ export function ChannelsPage() {
                 </Alert>
               )}
 
-              <div className="flex w-full flex-wrap items-center justify-between gap-2">
+              {/* Same footer shape as the task form, for the same reason. */}
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                 <Button
                   variant="outlined"
                   icon={FlaskConical}
                   onClick={() => void handleTestDraft()}
                   disabled={testingDraft || saving}
+                  fullWidth
+                  className="sm:w-auto"
                 >
                   {testingDraft ? "Testing…" : "Send test"}
                 </Button>
 
                 <div className="flex items-center gap-2">
-                  <Button variant="ghost" onClick={closeEditor} disabled={saving}>
+                  <Button
+                    variant="ghost"
+                    onClick={closeEditor}
+                    disabled={saving}
+                    fullWidth
+                    className="sm:w-auto"
+                  >
                     Cancel
                   </Button>
                   <Button
                     onClick={() => void handleSubmit()}
                     disabled={saving || testingDraft}
+                    fullWidth
+                    className="sm:w-auto"
                   >
                     {saving
                       ? "Saving…"

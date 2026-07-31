@@ -90,8 +90,8 @@ export function ScheduleField({ value, onChange, error }: ScheduleFieldProps) {
   );
 
   return (
-    <div className="grid gap-4">
-      <div className="grid gap-4 sm:grid-cols-2">
+    <div className="grid grid-cols-1 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Select
           label="Schedule"
           value={frequency}
@@ -189,11 +189,16 @@ export function ScheduleField({ value, onChange, error }: ScheduleFieldProps) {
       </div>
 
       {frequency === "week" && (
-        <div className="grid gap-1">
+        <div className="grid grid-cols-1 gap-1">
           <Text variant="caption" color="muted">
             On
           </Text>
-          <div className="flex flex-wrap gap-1">
+          {/*
+            One column per day rather than a wrapping row: seven equal targets
+            that stay on one line at any width, instead of a ragged row that
+            reflows as the labels change length.
+          */}
+          <div className="grid grid-cols-7 gap-1">
             {WEEKDAY_LABELS.map((label, day) => {
               const selected = value.weekdays.includes(day);
               return (
@@ -207,6 +212,7 @@ export function ScheduleField({ value, onChange, error }: ScheduleFieldProps) {
                   onClick={() => {
                     toggleWeekday(day);
                   }}
+                  fullWidth
                 >
                   {label}
                 </Button>

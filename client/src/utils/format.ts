@@ -56,8 +56,16 @@ export function prettyJson(text: string | null | undefined): string {
   }
 }
 
-/** Compact one-line preview of a result for the history table. */
-export function summarize(text: string | null | undefined, max = 80): string {
+/**
+ * Compact one-line preview of a result for the history table.
+ *
+ * The cap is a safety bound on how much of a stored blob reaches the DOM, not
+ * the visual truncation — every caller clips with `truncate`, so the width of
+ * the column decides what is actually shown. Keeping it well above what any
+ * column can fit is what lets a wide table use the room it has instead of
+ * ellipsing at a width chosen for a phone.
+ */
+export function summarize(text: string | null | undefined, max = 300): string {
   if (!text) return "—";
 
   let compact = text;

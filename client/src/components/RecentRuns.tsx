@@ -1,12 +1,11 @@
 import { Link } from "@tanstack/react-router";
-import { Badge, Card, Text } from "brake-ui";
+import { Card, Text } from "brake-ui";
 import { ArrowRight } from "lucide-react";
 import type { Run } from "../types/index.ts";
-import { StatusBadge } from "./StatusBadge.tsx";
-import { NotificationBadge } from "./NotificationBadge.tsx";
+import { RunBadges, RunListItem, runOutcome } from "./RunSummary.tsx";
 import { useRuns } from "../hooks/useRuns.ts";
 import { RECENT_RUNS_LIMIT } from "../constants/index.ts";
-import { absoluteTime, firstLine, summarize, timeAgo } from "../utils/format.ts";
+import { absoluteTime, timeAgo } from "../utils/format.ts";
 
 interface RecentRunsProps {
   onSelectRun: (run: Run) => void;
@@ -19,32 +18,54 @@ interface RecentRunsProps {
  */
 export function RecentRuns({ onSelectRun }: RecentRunsProps) {
   const { runs, isLoading } = useRuns({ offset: 0, limit: RECENT_RUNS_LIMIT });
+  const rows = runs?.runs ?? [];
+  const isEmpty = !isLoading && rows.length === 0;
 
   return (
-    <section className="flex flex-col gap-4 overflow-hidden">
-      <div className="flex items-baseline justify-between">
-        <Text variant="h4" as="h2">
+    <section className="flex min-w-0 flex-col gap-3 xl:overflow-hidden">
+      <div className="flex items-baseline justify-between gap-2">
+        <Text variant="h3" as="h2">
           Recent runs
         </Text>
         <Link
           to="/runs"
           search={{ offset: 0 }}
-          className="flex items-center gap-1 text-sm text-text-muted hover:text-text"
+          className="flex items-center gap-1 rounded-md py-1 text-sm text-text-muted transition-colors hover:text-text"
         >
           View all
           <ArrowRight size={14} aria-hidden="true" />
         </Link>
       </div>
 
-      <Card size="lg" className="flex-1 overflow-hidden">
-        <div className="overflow-auto">
+      {/*
+        Below md the table becomes a stack of cards. Four columns on a phone
+        is a horizontal scroll that hides the result — the one column you
+        opened the panel to read.
+      */}
+      <div className="grid grid-cols-1 gap-2 md:hidden">
+        {isEmpty && (
+          <Card>
+            <Text color="muted">No runs yet.</Text>
+          </Card>
+        )}
+        {rows.map((run) => (
+          <RunListItem key={run.id} run={run} onSelect={onSelectRun} />
+        ))}
+      </div>
+
+      <Card size="lg" className="hidden md:block xl:min-h-0 xl:flex-1 xl:overflow-hidden">
+        <div className="h-full overflow-auto">
           <table className="w-full min-w-md border-collapse text-left text-sm">
             <thead className="sticky top-0 z-10 bg-surface">
               <tr className="border-b border-border">
                 {["When", "Task", "Status", "Result"].map((heading) => (
                   <th
                     key={heading}
-                    className="px-3 py-2 font-medium whitespace-nowrap text-text-muted"
+                    // Result absorbs whatever is left, so a wide panel shows
+                    // more of the value instead of padding the row out.
+                    className={`px-3 py-2 font-medium whitespace-nowrap text-text-muted ${
+                      heading === "Result" ? "w-full" : ""
+                    }`}
                   >
                     {heading}
                   </th>
@@ -52,7 +73,7 @@ export function RecentRuns({ onSelectRun }: RecentRunsProps) {
               </tr>
             </thead>
             <tbody>
-              {!isLoading && (runs?.runs.length ?? 0) === 0 && (
+              {isEmpty && (
                 <tr>
                   <td colSpan={4} className="px-3 py-8 text-center">
                     <Text color="muted">No runs yet.</Text>
@@ -60,7 +81,7 @@ export function RecentRuns({ onSelectRun }: RecentRunsProps) {
                 </tr>
               )}
 
-              {(runs?.runs ?? []).map((run) => (
+              {rows.map((run) => (
                 <tr
                   key={run.id}
                   onClick={() => {
@@ -78,21 +99,14 @@ export function RecentRuns({ onSelectRun }: RecentRunsProps) {
                     {run.task_name ?? run.task_id}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">
-                    <div className="flex items-center gap-1.5">
-                      <StatusBadge status={run.status} />
-                      <NotificationBadge run={run} />
-                      {run.condition_met &&
-                        !run.notified &&
-                        !run.notification_status && (
-                          <Badge variant="info">met</Badge>
-                        )}
-                    </div>
+                    <RunBadges run={run} />
                   </td>
-                  <td className="max-w-56 px-3 py-2">
+                  {/* w-full + max-w-0 is what makes truncate work in an
+                      auto-layout table: the cell takes the leftover width but
+                      reports no minimum, so the span clips instead of pushing. */}
+                  <td className="w-full max-w-0 px-3 py-2">
                     <span className="block truncate font-mono text-xs text-text-secondary">
-                      {run.status === "failed"
-                        ? firstLine(run.error)
-                        : summarize(run.result_summary)}
+                      {runOutcome(run)}
                     </span>
                   </td>
                 </tr>

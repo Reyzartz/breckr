@@ -125,7 +125,7 @@ export function ConditionField({
   });
 
   return (
-    <div className="grid gap-4 rounded-lg border border-(--border) p-3">
+    <div className="grid grid-cols-1 gap-4 rounded-lg border border-(--border) p-3">
       <div className="flex items-center justify-between">
         <Text variant="caption" color="muted">
           Condition {index + 1}
@@ -143,7 +143,7 @@ export function ConditionField({
         )}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Input label="CSS selector" {...bind("selector")} placeholder=".price" fullWidth />
         <Input
           label="Wait for selector (optional)"
@@ -153,7 +153,7 @@ export function ConditionField({
         />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Select
           label="Extract"
           value={value.extract}
@@ -178,7 +178,7 @@ export function ConditionField({
         )}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Select label="Alert when it" {...bind("operator")} fullWidth>
           {operators.map((operator) => (
             <option key={operator} value={operator}>
