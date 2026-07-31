@@ -38,12 +38,14 @@ jobs:
           cache-dependency-path: client/package-lock.json
       - run: npm ci --no-audit --no-fund
         working-directory: client
-      - run: npm run typecheck
-        working-directory: client
-      # A type error and a build error are different failures -- the image
-      # build only exercises the second, so this is what actually proves the
-      # Dockerfile's client stage will succeed.
+      # Build before typecheck, not after: routeTree.gen.ts is gitignored and
+      # only exists once the TanStack Router Vite plugin has generated it as a
+      # side effect of a build (or dev) run. Every route file imports types
+      # from it, so typecheck fails on a fresh checkout without this ordering
+      # -- it only looks fine locally once one build has left the file on disk.
       - run: npm run build
+        working-directory: client
+      - run: npm run typecheck
         working-directory: client
 
   image:
