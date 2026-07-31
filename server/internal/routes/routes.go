@@ -30,31 +30,55 @@ func RegisterRoutes(application *app.Application, cfg *config.Config) *chi.Mux {
 		MaxAge:           300,
 	}))
 
+	// Records the auth verdict without acting on it. Handlers on both sides of
+	// the line below read it: RequireAuth to reject, /api/health to decide how
+	// much to say.
+	r.Use(application.AuthMiddleware.Annotate)
+
 	r.Route("/api", func(r chi.Router) {
+		// --- public ---------------------------------------------------------
+		//
+		// Signing in cannot require being signed in, and health has to answer
+		// Docker's healthcheck, which has no way to authenticate.
+		r.Post("/auth/login", application.AuthHandler.HandleLogin)
+		r.Post("/auth/logout", application.AuthHandler.HandleLogout)
+		r.Get("/auth/status", application.AuthHandler.HandleStatus)
+
+		// Public, but it reports only liveness to an anonymous caller.
 		r.Get("/health", application.HealthHandler.HandleHealthCheck)
 
-		// The dashboard's live connection. Everything below it is a plain
-		// request the client makes in response to what arrives here.
-		r.Get("/events", application.EventsHandler.HandleSubscribe)
+		// --- everything else ------------------------------------------------
+		r.Group(func(r chi.Router) {
+			r.Use(application.AuthMiddleware.RequireAuth)
 
-		r.Get("/tasks", application.TaskHandler.HandleGetAllTasks)
-		r.Post("/tasks", application.TaskHandler.HandleCreateTask)
-		r.Post("/tasks/test", application.TaskHandler.HandleTestTask)
-		r.Patch("/tasks/{id}", application.TaskHandler.HandleUpdateTask)
-		r.Delete("/tasks/{id}", application.TaskHandler.HandleDeleteTask)
-		r.Post("/tasks/{id}/run-now", application.TaskHandler.HandleRunTaskNow)
+			// The dashboard's live connection. Everything below it is a plain
+			// request the client makes in response to what arrives here.
+			//
+			// Guarded here like any other route, and it needs nothing special to
+			// be: the browser attaches the session cookie to a same-origin
+			// handshake by itself, and an unauthenticated upgrade is rejected
+			// with a plain 401 before websocket.Accept ever runs.
+			r.Get("/events", application.EventsHandler.HandleSubscribe)
 
-		r.Get("/runs", application.RunHandler.HandleGetAllRuns)
-		r.Get("/runs/{id}", application.RunHandler.HandleGetRun)
+			r.Get("/tasks", application.TaskHandler.HandleGetAllTasks)
+			r.Post("/tasks", application.TaskHandler.HandleCreateTask)
+			r.Post("/tasks/test", application.TaskHandler.HandleTestTask)
+			r.Patch("/tasks/{id}", application.TaskHandler.HandleUpdateTask)
+			r.Delete("/tasks/{id}", application.TaskHandler.HandleDeleteTask)
+			r.Post("/tasks/{id}/run-now", application.TaskHandler.HandleRunTaskNow)
 
-		r.Get("/channels", application.ChannelHandler.HandleGetAllChannels)
-		r.Post("/channels", application.ChannelHandler.HandleCreateChannel)
-		// Registered before /channels/{id}/test so a draft is not read as a
-		// channel named "test".
-		r.Post("/channels/test", application.ChannelHandler.HandleTestDraftChannel)
-		r.Patch("/channels/{id}", application.ChannelHandler.HandleUpdateChannel)
-		r.Delete("/channels/{id}", application.ChannelHandler.HandleDeleteChannel)
-		r.Post("/channels/{id}/test", application.ChannelHandler.HandleTestChannel)
+			r.Get("/runs", application.RunHandler.HandleGetAllRuns)
+			r.Get("/runs/{id}", application.RunHandler.HandleGetRun)
+
+			r.Get("/channels", application.ChannelHandler.HandleGetAllChannels)
+			r.Post("/channels", application.ChannelHandler.HandleCreateChannel)
+			// Registered before /channels/{id}/test so a draft is not read as a
+			// channel named "test".
+			r.Post("/channels/test", application.ChannelHandler.HandleTestDraftChannel)
+			r.Patch("/channels/{id}", application.ChannelHandler.HandleUpdateChannel)
+			r.Delete("/channels/{id}", application.ChannelHandler.HandleDeleteChannel)
+			r.Post("/channels/{id}/test", application.ChannelHandler.HandleTestChannel)
+		})
 	})
 
 	registerDashboard(r, application, cfg)
@@ -64,6 +88,10 @@ func RegisterRoutes(application *app.Application, cfg *config.Config) *chi.Mux {
 
 // registerDashboard serves the built client from the same origin and port, so
 // there is no CORS to configure and a reverse proxy is genuinely optional.
+//
+// Registered on the root mux, outside /api, so RequireAuth never touches it.
+// That is load-bearing rather than incidental: the login page is this SPA, so
+// index.html and its bundle have to load before anyone can sign in.
 func registerDashboard(r *chi.Mux, application *app.Application, cfg *config.Config) {
 	index := filepath.Join(cfg.Server.ClientDist, "index.html")
 

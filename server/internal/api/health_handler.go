@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"breckr-server/internal/auth"
 	"breckr-server/internal/config"
 	"breckr-server/internal/scheduler"
 	"breckr-server/internal/store"
@@ -33,6 +34,20 @@ func NewHealthHandler(
 }
 
 func (hh *HealthHandler) HandleHealthCheck(w http.ResponseWriter, r *http.Request) {
+	// Public, because Docker's HEALTHCHECK has no way to sign in -- but an
+	// anonymous caller gets liveness and nothing else. The full body names the
+	// browser endpoint and version and counts tasks and channels, which is free
+	// reconnaissance for anyone probing an exposed instance.
+	//
+	// With no password configured every caller is authenticated, so this is the
+	// full body as before.
+	if !auth.IsAuthenticated(r.Context()) {
+		utils.WriteJSONResponse(w, http.StatusOK, utils.Envelope{
+			"data": types.AnonymousHealthResponse{OK: true},
+		})
+		return
+	}
+
 	// Counted rather than probed: a real probe would send a message to the
 	// user's chat every time health was checked.
 	//

@@ -18,8 +18,14 @@ import (
 	"strings"
 	"time"
 
+	"breckr-server/internal/auth"
+
 	"github.com/joho/godotenv"
 )
+
+// minPasswordLength is the shortest AUTH_PASSWORD worth accepting. Short enough
+// to guess is the same as unset, but silently so.
+const minPasswordLength = 8
 
 type Config struct {
 	Server   ServerConfig
@@ -63,6 +69,15 @@ type SecurityConfig struct {
 	// It defaults to sitting beside the database, because the two are a pair:
 	// backing up one without the other leaves unreadable channels.
 	KeyFile string
+	// AuthPassword is the one shared password the dashboard asks for. Empty --
+	// the default -- disables authentication entirely, which is correct for a
+	// deployment reachable only from loopback and keeps local development free
+	// of a login step.
+	AuthPassword string
+	// SessionTTL is how long a session cookie stays valid.
+	SessionTTL time.Duration
+	// CookieSecure decides the cookie's Secure attribute. See auth.CookieSecure.
+	CookieSecure auth.CookieSecure
 }
 
 type RuntimeConfig struct {
@@ -79,7 +94,15 @@ func Load() (*Config, error) {
 
 	browserEndpoint, err := required("BROWSER_WS_ENDPOINT")
 	if err != nil {
-		return nil, err
+		// The one setting with no sensible default, and the one most likely to
+		// stop a first run -- so say what it is for rather than only that it is
+		// missing.
+		return nil, fmt.Errorf(
+			"%w. It is the CDP address of the browser to drive: run `docker compose up -d lightpanda` "+
+				"and set ws://127.0.0.1:9222, or use the breckr:standalone image, which bundles a browser "+
+				"and sets this for you",
+			err,
+		)
 	}
 
 	// Handed straight to the CDP client, which fails opaquely on a malformed
@@ -104,6 +127,42 @@ func Load() (*Config, error) {
 			"BROWSER_WS_ENDPOINT must be a ws://, wss://, http:// or https:// URL, got %q",
 			browserEndpoint,
 		)
+	}
+
+	authPassword := optional("AUTH_PASSWORD", "")
+	if authPassword != "" && len(authPassword) < minPasswordLength {
+		return nil, fmt.Errorf(
+			"AUTH_PASSWORD must be at least %d characters, got %d. Leave it unset to disable authentication",
+			minPasswordLength, len(authPassword),
+		)
+	}
+
+	sessionTTLHours, err := integer("AUTH_SESSION_TTL_HOURS", 720)
+	if err != nil {
+		return nil, err
+	}
+
+	cookieSecure, err := auth.ParseCookieSecure(optional("AUTH_COOKIE_SECURE", string(auth.CookieSecureAuto)))
+	if err != nil {
+		return nil, err
+	}
+
+	// This list is both the CORS allowlist and the websocket handshake's origin
+	// patterns. With a session cookie in play and AllowCredentials already set,
+	// a wildcard would let any page on the internet drive this API with the
+	// user's own session -- so it stops being a convenience and starts being a
+	// CSRF hole the moment a password exists.
+	allowedOrigins := strings.Split(optional("CLIENT_ALLOWED_ORIGIN", "http://localhost:5173"), ",")
+	if authPassword != "" {
+		for _, origin := range allowedOrigins {
+			if strings.TrimSpace(origin) == "*" {
+				return nil, fmt.Errorf(
+					"CLIENT_ALLOWED_ORIGIN cannot be * while AUTH_PASSWORD is set: " +
+						"any site could then make authenticated requests with the signed-in user's cookie. " +
+						"List the origins the dashboard is served from instead",
+				)
+			}
+		}
 	}
 
 	timezone := optional("TZ", "UTC")
@@ -148,9 +207,7 @@ func Load() (*Config, error) {
 			Port:       port,
 			ClientDist: clientDist,
 		},
-		Client: ClientConfig{
-			AllowedOrigins: strings.Split(optional("CLIENT_ALLOWED_ORIGIN", "http://localhost:5173"), ","),
-		},
+		Client:   ClientConfig{AllowedOrigins: allowedOrigins},
 		Database: DatabaseConfig{Path: dbPath},
 		Browser: BrowserConfig{
 			Endpoint:       browserEndpoint,
@@ -158,7 +215,12 @@ func Load() (*Config, error) {
 			NeedsResolve:   needsResolve,
 			DefaultTimeout: time.Duration(timeoutMs) * time.Millisecond,
 		},
-		Security: SecurityConfig{KeyFile: keyFile},
+		Security: SecurityConfig{
+			KeyFile:      keyFile,
+			AuthPassword: authPassword,
+			SessionTTL:   time.Duration(sessionTTLHours) * time.Hour,
+			CookieSecure: cookieSecure,
+		},
 		Runtime: RuntimeConfig{
 			Timezone:      timezone,
 			Location:      location,
@@ -205,7 +267,12 @@ func resolveAgainst(root, path string) string {
 func required(name string) (string, error) {
 	value := strings.TrimSpace(os.Getenv(name))
 	if value == "" {
-		return "", fmt.Errorf("missing required env var %s. Copy .env.example to .env and fill it in", name)
+		// Named rather than pointed at .env, because the audience is as likely to
+		// be someone running `docker run -e` as someone in a clone of the repo.
+		return "", fmt.Errorf(
+			"missing required env var %s. Set it in the environment, or copy .env.example to .env and fill it in",
+			name,
+		)
 	}
 	return value, nil
 }
