@@ -30,6 +30,26 @@ const MaxRunLimit = 200
 // timezone.
 const RetentionCron = "0 4 * * *"
 
+// --- Events -----------------------------------------------------------------
+
+// EventsPingInterval is how often /api/events pings an otherwise idle socket. A
+// peer that vanished without a close frame -- a closed laptop, a dropped
+// network -- is only detectable by asking.
+const EventsPingInterval = 30 * time.Second
+
+// EventsWriteTimeout bounds a single frame, event or ping. Generous for what is
+// normally a loopback socket, short enough that a wedged peer is dropped rather
+// than held open forever.
+const EventsWriteTimeout = 10 * time.Second
+
+// HealthProbeInterval is how often the server checks the browser on its own
+// behalf, publishing only when the answer changes.
+//
+// Reachability lives in another process, so it is the one piece of dashboard
+// state nobody can push -- somebody has to ask. Asking here, once, replaces
+// every open dashboard asking on its own timer.
+const HealthProbeInterval = 30 * time.Second
+
 // ScheduleFrequencies are the schedule shapes the dashboard's builder can send.
 var ScheduleFrequencies = []string{
 	FreqMinutes, FreqHours, FreqDay, FreqWeek, FreqMonth, FreqCustom,

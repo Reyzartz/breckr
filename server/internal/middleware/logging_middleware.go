@@ -31,6 +31,19 @@ func (s *statusRecorder) WriteHeader(status int) {
 	s.ResponseWriter.WriteHeader(status)
 }
 
+// Unwrap exposes the writer underneath.
+//
+// Embedding the interface forwards Write and Header but hides everything the
+// concrete writer can also do, because a type assertion sees only this struct.
+// /api/events needs two of those: hijacking the connection, and clearing the
+// deadlines http.Server set for what it took to be an ordinary request. Both
+// http.NewResponseController and the websocket handshake find them by following
+// Unwrap, so this one method is what makes a long-lived connection possible
+// through the log.
+func (s *statusRecorder) Unwrap() http.ResponseWriter {
+	return s.ResponseWriter
+}
+
 func (m *LoggingMiddleware) LogRequest(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()

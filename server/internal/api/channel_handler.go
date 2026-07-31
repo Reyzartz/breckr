@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"breckr-server/internal/events"
 	"breckr-server/internal/notifier"
 	"breckr-server/internal/store"
 	"breckr-server/internal/types"
@@ -17,14 +18,32 @@ type ChannelHandler struct {
 	logger     *log.Logger
 	channels   store.ChannelStore
 	dispatcher notifier.Dispatcher
+	publisher  Publisher
 }
 
 func NewChannelHandler(
 	logger *log.Logger,
 	channels store.ChannelStore,
 	dispatcher notifier.Dispatcher,
+	publisher Publisher,
 ) *ChannelHandler {
-	return &ChannelHandler{logger: logger, channels: channels, dispatcher: dispatcher}
+	return &ChannelHandler{
+		logger:     logger,
+		channels:   channels,
+		dispatcher: dispatcher,
+		publisher:  publisher,
+	}
+}
+
+// announce reports a channel change.
+//
+// Health always rides along: it reports the enabled-channel count, which is
+// what the dashboard's "no channels configured" warning is drawn from, so any
+// create, edit or delete can move it.
+func (ch *ChannelHandler) announce(extra ...events.Resource) {
+	ch.publisher.Publish(append([]events.Resource{
+		events.ResourceChannels, events.ResourceHealth,
+	}, extra...)...)
 }
 
 func (ch *ChannelHandler) fail(w http.ResponseWriter, err error, what string) {
@@ -121,6 +140,8 @@ func (ch *ChannelHandler) HandleCreateChannel(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	ch.announce()
+
 	utils.WriteJSONResponse(w, http.StatusCreated, utils.Envelope{"data": present(created)})
 }
 
@@ -178,6 +199,8 @@ func (ch *ChannelHandler) HandleUpdateChannel(w http.ResponseWriter, r *http.Req
 		ch.fail(w, err, "UpdateChannel")
 		return
 	}
+
+	ch.announce()
 
 	utils.WriteJSONResponse(w, http.StatusOK, utils.Envelope{"data": present(updated)})
 }
@@ -238,6 +261,10 @@ func (ch *ChannelHandler) HandleDeleteChannel(w http.ResponseWriter, r *http.Req
 		utils.WriteError(w, http.StatusNotFound, "Unknown channel \""+id+"\".", "")
 		return
 	}
+
+	// Tasks too: the task links went with it, so every task that was sending
+	// here now shows one fewer channel.
+	ch.announce(events.ResourceTasks)
 
 	w.WriteHeader(http.StatusNoContent)
 }

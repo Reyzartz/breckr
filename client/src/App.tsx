@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Alert, Button, Divider, Text } from "brake-ui";
-import { Bell, Moon, Plus, RefreshCw, Sun } from "lucide-react";
+import { Bell, Moon, Plus, RefreshCw, Sun, WifiOff } from "lucide-react";
 import type { Run, TaskWithStatus } from "./types/index.ts";
 import { TaskList } from "./components/TaskList.tsx";
 import { TaskFormModal } from "./components/TaskFormModal.tsx";
@@ -33,7 +33,8 @@ export default function App() {
     channels,
     error,
     loading,
-    busyTaskId,
+    connection,
+    isTaskBusy,
     testingChannelId,
     notificationTest,
     refresh,
@@ -77,6 +78,19 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
+          {/*
+            Shown only while disconnected. The dashboard has no polling loop, so
+            a dropped socket means what is on screen has stopped updating —
+            which the user has no other way to tell.
+          */}
+          {connection !== "open" && (
+            <Text variant="caption" color="muted">
+              <span className="inline-flex items-center gap-1.5">
+                <WifiOff size={12} aria-hidden="true" />
+                {connection === "connecting" ? "Connecting…" : "Reconnecting…"}
+              </span>
+            </Text>
+          )}
           <Button size="sm" variant="ghost" icon={Bell} onClick={openChannels}>
             Channels
             {channels.length > 0 && ` (${String(channels.length)})`}
@@ -184,7 +198,7 @@ export default function App() {
                 onEdit={setEditing}
                 onDelete={removeTask}
                 onCreate={openCreate}
-                busyTaskId={busyTaskId}
+                isTaskBusy={isTaskBusy}
               />
             </div>
           </section>

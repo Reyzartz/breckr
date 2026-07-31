@@ -42,9 +42,14 @@ func Start(application *app.Application, cfg *config.Config) {
 		Handler:     r,
 		IdleTimeout: time.Minute,
 		ReadTimeout: 30 * time.Second,
-		// Generous because a "run now" answers only once the run finishes, and
-		// a run may take the full DEFAULT_TIMEOUT_MS plus connect time.
-		WriteTimeout: cfg.Browser.DefaultTimeout + 30*time.Second,
+		// No route waits on a run any more -- "run now" answers as soon as the
+		// run is started and the outcome arrives over /api/events -- so this is
+		// back to an ordinary bound rather than a full browser timeout.
+		//
+		// /api/events outlives it regardless: the websocket handler clears the
+		// inherited deadlines once the connection is hijacked, and bounds each
+		// frame on its own instead.
+		WriteTimeout: 30 * time.Second,
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

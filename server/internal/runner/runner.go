@@ -7,6 +7,7 @@ import (
 	"log"
 	"time"
 
+	"breckr-server/internal/events"
 	"breckr-server/internal/notifier"
 	"breckr-server/internal/store"
 	"breckr-server/internal/types"
@@ -19,12 +20,22 @@ type Browser interface {
 	WithoutPage(timeout time.Duration, fn func() error) error
 }
 
+// Publisher is the slice of the event bus the runner needs -- announcing that a
+// run row appeared or changed, so the dashboard refetches instead of polling.
+//
+// Publish must never block: a stalled dashboard cannot be allowed to hold up a
+// task run. events.Bus guarantees that.
+type Publisher interface {
+	Publish(resources ...events.Resource)
+}
+
 type Runner struct {
 	tasks      store.TaskStore
 	runs       store.RunStore
 	channels   store.ChannelStore
 	browser    Browser
 	dispatcher notifier.Dispatcher
+	publisher  Publisher
 	logger     *log.Logger
 }
 
@@ -34,6 +45,7 @@ func New(
 	channels store.ChannelStore,
 	browser Browser,
 	dispatcher notifier.Dispatcher,
+	publisher Publisher,
 	logger *log.Logger,
 ) *Runner {
 	return &Runner{
@@ -42,8 +54,21 @@ func New(
 		channels:   channels,
 		browser:    browser,
 		dispatcher: dispatcher,
+		publisher:  publisher,
 		logger:     logger,
 	}
+}
+
+// announce reports a change to anyone watching, tolerating a nil publisher so
+// tests can build a runner without a bus.
+//
+// Runs and tasks always move together: TaskWithStatus carries last_run, so a
+// run starting or finishing changes the task cards as well as the history.
+func (r *Runner) announce() {
+	if r.publisher == nil {
+		return
+	}
+	r.publisher.Publish(events.ResourceRuns, events.ResourceTasks)
 }
 
 // RunTask executes one task and records the outcome.
@@ -68,6 +93,10 @@ func (r *Runner) RunTask(
 		r.logger.Printf("ERROR: could not start a run for task %q: %v", definition.ID, err)
 		return types.RunOutcome{Status: types.RunStatusFailed, Error: err.Error()}
 	}
+
+	// Announced before the work, not after, so the dashboard shows the run as
+	// 'running' for its whole duration rather than only once it has finished.
+	r.announce()
 
 	var result *types.TaskResult
 
@@ -232,8 +261,11 @@ func (r *Runner) recordAttempts(runID int64, fanout notifier.Fanout, message str
 	r.logError(r.channels.RecordAttempts(runID, attempts), "record notification attempts")
 }
 
+// complete finalizes the run row. Every terminal path funnels through here, so
+// it is also the one place the finished state has to be announced from.
 func (r *Runner) complete(input store.CompleteRunInput) {
 	r.logError(r.runs.CompleteRun(input), "complete run")
+	r.announce()
 }
 
 func (r *Runner) logError(err error, what string) {

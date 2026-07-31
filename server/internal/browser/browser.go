@@ -231,9 +231,11 @@ func withDeadline(ctx context.Context, timeout time.Duration, fn func() error) e
 
 // CheckReachable is the cheap liveness probe behind /api/health.
 //
-// It takes the pool mutex like any other browser work. The dashboard polls this
-// every few seconds, and a browser that serves one session at a time cannot
-// answer a probe and a run at once.
+// It takes the pool mutex like any other browser work, and a browser that
+// serves one session at a time cannot answer a probe and a run at once -- which
+// is why the server probes this on one schedule of its own
+// (Application.watchBrowserHealth) rather than letting every open dashboard ask
+// on a timer.
 func (p *Pool) CheckReachable(timeout time.Duration) types.BrowserHealth {
 	p.mu.Lock()
 	defer p.mu.Unlock()

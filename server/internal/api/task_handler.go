@@ -1,11 +1,13 @@
 package api
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"strings"
 	"time"
 
+	"breckr-server/internal/events"
 	"breckr-server/internal/executor"
 	"breckr-server/internal/runner"
 	"breckr-server/internal/scheduler"
@@ -19,6 +21,12 @@ type Browser interface {
 	WithPage(timeout time.Duration, fn func(page types.Page) error) error
 }
 
+// Publisher is the slice of the event bus the handlers need, so a change made
+// in one dashboard tab reaches every other one without a poll.
+type Publisher interface {
+	Publish(resources ...events.Resource)
+}
+
 type TaskHandler struct {
 	logger    *log.Logger
 	taskStore store.TaskStore
@@ -27,6 +35,7 @@ type TaskHandler struct {
 	registry  *scheduler.Registry
 	runner    *runner.Runner
 	browser   Browser
+	publisher Publisher
 	timeout   time.Duration
 }
 
@@ -38,6 +47,7 @@ func NewTaskHandler(
 	registry *scheduler.Registry,
 	taskRunner *runner.Runner,
 	browser Browser,
+	publisher Publisher,
 	timeout time.Duration,
 ) *TaskHandler {
 	return &TaskHandler{
@@ -48,6 +58,7 @@ func NewTaskHandler(
 		registry:  registry,
 		runner:    taskRunner,
 		browser:   browser,
+		publisher: publisher,
 		timeout:   timeout,
 	}
 }
@@ -209,6 +220,8 @@ func (th *TaskHandler) HandleCreateTask(w http.ResponseWriter, r *http.Request) 
 	response := th.decorate(created, nil, channelIDs)
 	response.Orphaned = !scheduled
 
+	th.publisher.Publish(events.ResourceTasks)
+
 	utils.WriteJSONResponse(w, http.StatusCreated, utils.Envelope{"data": response})
 }
 
@@ -283,6 +296,8 @@ func (th *TaskHandler) HandleUpdateTask(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
+
+	th.publisher.Publish(events.ResourceTasks)
 
 	utils.WriteJSONResponse(w, http.StatusOK, utils.Envelope{
 		"data": types.UpdateTaskResponse{
@@ -381,6 +396,10 @@ func (th *TaskHandler) HandleDeleteTask(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Runs too, because the cascade just emptied this task's history out of the
+	// table every other tab is looking at.
+	th.publisher.Publish(events.ResourceTasks, events.ResourceRuns)
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -452,9 +471,16 @@ func (th *TaskHandler) HandleRunTaskNow(w http.ResponseWriter, r *http.Request) 
 	// Deliberately runs even when the task is disabled -- "run now" is an
 	// explicit manual override, and it's how you test a task before enabling
 	// it. It still queues behind the mutex like any scheduled run.
-	outcome := th.runner.RunTask(r.Context(), definition, types.TriggerManual)
+	//
+	// Detached from the request, and on context.Background() rather than
+	// r.Context(), for the same reason a cron trigger is: the answer arrives on
+	// the event socket as the run row appears and then resolves, so a browser
+	// that navigates away must not cancel a run already in flight.
+	go th.runner.RunTask(context.Background(), definition, types.TriggerManual)
 
-	utils.WriteJSONResponse(w, http.StatusAccepted, utils.Envelope{"data": outcome})
+	utils.WriteJSONResponse(w, http.StatusAccepted, utils.Envelope{
+		"data": types.RunAcceptedResponse{Accepted: true},
+	})
 }
 
 func optionalString(value string) *string {

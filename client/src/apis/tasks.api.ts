@@ -5,7 +5,7 @@ import type {
   TestTaskResponse,
   UpdateTaskRequest,
   UpdateTaskResponse,
-  RunOutcome,
+  RunAcceptedResponse,
 } from "../types/index.ts";
 import { request } from "./client.ts";
 
@@ -57,9 +57,16 @@ export function testTask(input: TestTaskRequest): Promise<TestTaskResponse> {
   });
 }
 
-/** Triggers immediately; works even while the task is disabled. */
-export function runTaskNow(id: string): Promise<RunOutcome> {
-  return request<RunOutcome>(`/tasks/${encodeURIComponent(id)}/run-now`, {
-    method: "POST",
-  });
+/**
+ * Triggers immediately; works even while the task is disabled.
+ *
+ * Resolves as soon as the run has been *started*, not when it finishes — the
+ * run row then arrives over the event socket as it appears and resolves. So
+ * there is no outcome to read here, and nothing to await for one.
+ */
+export function runTaskNow(id: string): Promise<RunAcceptedResponse> {
+  return request<RunAcceptedResponse>(
+    `/tasks/${encodeURIComponent(id)}/run-now`,
+    { method: "POST" }
+  );
 }

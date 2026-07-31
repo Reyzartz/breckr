@@ -12,6 +12,7 @@ import (
 	"breckr-server/internal/browser"
 	"breckr-server/internal/config"
 	"breckr-server/internal/crypto"
+	"breckr-server/internal/events"
 	"breckr-server/internal/executor"
 	"breckr-server/internal/middleware"
 	"breckr-server/internal/migrations"
@@ -28,13 +29,18 @@ type Application struct {
 	Registry          *scheduler.Registry
 	Runner            *runner.Runner
 	RunStore          store.RunStore
+	Events            *events.Bus
 	HealthHandler     *api.HealthHandler
 	TaskHandler       *api.TaskHandler
 	RunHandler        *api.RunHandler
 	ChannelHandler    *api.ChannelHandler
+	EventsHandler     *api.EventsHandler
 	LoggingMiddleware *middleware.LoggingMiddleware
 
-	cfg *config.Config
+	cfg     *config.Config
+	browser *browser.Pool
+	// stopHealth ends the reachability watcher. Nil until Boot has run.
+	stopHealth context.CancelFunc
 }
 
 func NewApplication(cfg *config.Config) (*Application, error) {
@@ -68,12 +74,16 @@ func NewApplication(cfg *config.Config) (*Application, error) {
 	browserPool := browser.NewPool(cfg)
 	dispatcher := notifier.NewDispatcher(channelStore, logger)
 
+	// Every write path publishes here and every open dashboard subscribes, which
+	// is what replaced the client's polling loop.
+	bus := events.New()
+
 	// The executor reaches run history only for the `changed` operator, through
 	// a one-method interface -- which is what keeps its operator table testable
 	// without a database.
 	taskExecutor := executor.New(runStore, cfg.Browser.DefaultTimeout)
 
-	taskRunner := runner.New(taskStore, runStore, channelStore, browserPool, dispatcher, logger)
+	taskRunner := runner.New(taskStore, runStore, channelStore, browserPool, dispatcher, bus, logger)
 	registry := scheduler.New(cfg, taskStore, taskExecutor, logger)
 
 	return &Application{
@@ -82,17 +92,20 @@ func NewApplication(cfg *config.Config) (*Application, error) {
 		Registry:      registry,
 		Runner:        taskRunner,
 		RunStore:      runStore,
+		Events:        bus,
 		HealthHandler: api.NewHealthHandler(cfg, browserPool, registry, channelStore),
 		TaskHandler: api.NewTaskHandler(
 			logger, taskStore, runStore, channelStore, registry, taskRunner,
-			browserPool, cfg.Browser.DefaultTimeout,
+			browserPool, bus, cfg.Browser.DefaultTimeout,
 		),
 		RunHandler: api.NewRunHandler(logger, runStore, channelStore),
 		// The same dispatcher the runner holds, so a test send exercises the
 		// delivery path a real alert takes rather than a parallel one.
-		ChannelHandler:    api.NewChannelHandler(logger, channelStore, dispatcher),
+		ChannelHandler:    api.NewChannelHandler(logger, channelStore, dispatcher, bus),
+		EventsHandler:     api.NewEventsHandler(logger, bus, cfg.Client.AllowedOrigins),
 		LoggingMiddleware: middleware.NewLoggingMiddleware(logger),
 		cfg:               cfg,
+		browser:           browserPool,
 	}, nil
 }
 
@@ -105,6 +118,7 @@ func (a *Application) Boot() error {
 		a.Logger.Printf("ERROR: could not sweep interrupted runs: %v", err)
 	} else if swept > 0 {
 		a.Logger.Printf("INFO: marked %d interrupted run(s) as failed", swept)
+		a.Events.Publish(events.ResourceRuns, events.ResourceTasks)
 	}
 
 	a.prune()
@@ -120,6 +134,11 @@ func (a *Application) Boot() error {
 	}
 
 	a.Registry.Start()
+
+	healthCtx, stopHealth := context.WithCancel(context.Background())
+	a.stopHealth = stopHealth
+	go a.watchBrowserHealth(healthCtx)
+
 	return nil
 }
 
@@ -137,12 +156,17 @@ func (a *Application) prune() {
 	}
 	if count > 0 {
 		a.Logger.Printf("INFO: pruned %d old run(s)", count)
+		a.Events.Publish(events.ResourceRuns, events.ResourceTasks)
 	}
 }
 
 // Shutdown stops the scheduler, waiting for in-flight runs, then closes the
 // database.
 func (a *Application) Shutdown() {
+	if a.stopHealth != nil {
+		a.stopHealth()
+	}
+
 	a.Registry.Stop()
 
 	if err := a.Database.Close(); err != nil {

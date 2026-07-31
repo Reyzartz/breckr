@@ -1,6 +1,7 @@
 import type {
   Channel,
   HealthResponse,
+  MonitorResource,
   RunsResponse,
   TaskWithStatus,
 } from "../types/index.ts";
@@ -31,24 +32,48 @@ export interface MonitorSnapshot {
   channels: Channel[];
 }
 
+export const ALL_RESOURCES: readonly MonitorResource[] = [
+  "tasks",
+  "runs",
+  "health",
+  "channels",
+];
+
 /**
- * One consistent view of the system.
+ * One consistent view of the requested resources.
  *
  * Fetched in parallel and returned together so the UI updates in a single
  * render — separate awaits would let the task list and the run table disagree
  * about the same moment.
+ *
+ * Scoped rather than always-everything because a change event names what moved,
+ * and refetching the rest would be wasted work. `/api/health` in particular
+ * probes the browser over CDP and takes the same global mutex task runs queue
+ * behind, so a finished run must not drag it along.
+ *
+ * Resources not asked for are absent from the result, which is not the same as
+ * being empty — the caller keeps whatever it already had.
  */
 export async function loadSnapshot(
-  runFilters: FetchRunsOptions = {}
-): Promise<MonitorSnapshot> {
+  runFilters: FetchRunsOptions = {},
+  resources: readonly MonitorResource[] = ALL_RESOURCES
+): Promise<Partial<MonitorSnapshot>> {
+  const wanted = new Set(resources);
+
   const [tasks, runs, health, channels] = await Promise.all([
-    fetchTasks(),
-    fetchRuns(runFilters),
-    fetchHealth(),
-    fetchChannels(),
+    wanted.has("tasks") ? fetchTasks() : undefined,
+    wanted.has("runs") ? fetchRuns(runFilters) : undefined,
+    wanted.has("health") ? fetchHealth() : undefined,
+    wanted.has("channels") ? fetchChannels() : undefined,
   ]);
 
-  return { tasks, runs, health, channels };
+  const snapshot: Partial<MonitorSnapshot> = {};
+  if (tasks !== undefined) snapshot.tasks = tasks;
+  if (runs !== undefined) snapshot.runs = runs;
+  if (health !== undefined) snapshot.health = health;
+  if (channels !== undefined) snapshot.channels = channels;
+
+  return snapshot;
 }
 
 /** Re-exported so components depend on this layer rather than on `apis/`. */

@@ -34,7 +34,7 @@ func NewHealthHandler(
 
 func (hh *HealthHandler) HandleHealthCheck(w http.ResponseWriter, r *http.Request) {
 	// Counted rather than probed: a real probe would send a message to the
-	// user's chat on every health poll.
+	// user's chat every time health was checked.
 	//
 	// A failed count reports zero, which reads as "not configured" -- the
 	// dashboard then warns, which is the right way to be wrong here.

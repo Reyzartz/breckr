@@ -27,9 +27,9 @@ export function RunDetail({ run, onClose }: RunDetailProps) {
   /**
    * The per-channel breakdown, fetched on open.
    *
-   * The run list does not carry attempts — one extra query per row would be paid
-   * on every poll to render a badge that does not show them. So the detail view
-   * asks for its own.
+   * The run list does not carry attempts — one extra query per row would be
+   * paid on every refetch to render a badge that does not show them. So the
+   * detail view asks for its own.
    */
   const [attempts, setAttempts] = useState<NotificationAttempt[] | null>(null);
 
