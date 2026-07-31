@@ -1,4 +1,4 @@
-# Web Task Monitor
+# breckr
 
 Self-hosted service that runs browser tasks on a schedule, checks a condition
 against what it extracts, alerts you when the condition is met, and serves a
@@ -8,6 +8,34 @@ Alerts go to any number of channels — Telegram, Discord, Slack, email, or your
 own webhook — created from the dashboard and picked per task.
 
 Tasks are created from the dashboard — no code, no rebuild.
+
+## Quick start (Docker)
+
+The whole thing, one command, no clone:
+
+```bash
+docker run -d --name breckr -p 3000:3000 --shm-size=1g \
+  -v breckr-data:/app/data \
+  -e AUTH_PASSWORD='pick-something-long-and-random' \
+  reyzartz/breckr:standalone
+```
+
+Open `http://localhost:3000`. `:standalone` bundles headless Chromium, so this
+is genuinely the whole story — `--shm-size=1g` is not optional, Chromium
+crashes on the 64MB `/dev/shm` a container gets by default. `AUTH_PASSWORD` is
+what makes publishing the port past `127.0.0.1` reasonable; see
+[Authentication](#authentication).
+
+Prefer Compose, or want the smaller image with Lightpanda instead of a bundled
+Chromium?
+
+```bash
+curl -O https://raw.githubusercontent.com/Reyzartz/breckr/master/deploy/compose.yaml
+AUTH_PASSWORD='pick-something-long-and-random' docker compose up -d
+```
+
+See [Images](#images) for what each tag contains, and [Deployment](#deployment)
+for running from source instead of the published image.
 
 ## How it works
 
@@ -28,8 +56,10 @@ run-now   ──┘                                   │
 A task is a **declarative spec** stored in SQLite — a URL, and one or more
 conditions, each a CSS selector, what to pull out of it, and how to test the
 result. One generic executor interprets it at run time. Nothing you type is ever
-evaluated as code, which is what makes it safe to author tasks from a dashboard
-that has no authentication in front of it.
+evaluated as code — a task spec cannot become arbitrary code even from an
+authenticated session. That is one half of the security story; the other half
+is [Authentication](#authentication) itself, which decides who gets a session
+in the first place.
 
 Go backend, TypeScript dashboard:
 
@@ -57,8 +87,8 @@ Inside `client/src`:
 
 | | |
 |---|---|
-| `routes` | one file per page — `/` (dashboard), `/runs` (history), `/channels` — plus `__root.tsx` for the shared header/nav. `@tanstack/router-plugin` generates `routeTree.gen.ts` from this folder; it's gitignored, not checked in. |
-| `hooks` | one `use<Resource>` per resource (`useTasks`, `useRuns`, `useHealth`, `useChannels`), each a thin TanStack Query wrapper: the query plus every mutation on it. `useMonitorEvents`, mounted once in `__root.tsx`, is what keeps them fresh — no query polls on its own timer; the server pushes a "these resources changed" signal over `/api/events` and this invalidates exactly the query keys it names. Components stay presentational. |
+| `routes` | one file per page — `/` (dashboard), `/runs` (history), `/channels` — nested under a pathless `_authed` layout that holds the header/nav and the guard described in [Authentication](#authentication); `/login` sits outside it. `@tanstack/router-plugin` generates `routeTree.gen.ts` from this folder; it's gitignored, not checked in. |
+| `hooks` | one `use<Resource>` per resource (`useTasks`, `useRuns`, `useHealth`, `useChannels`, `useAuth`), each a thin TanStack Query wrapper: the query plus every mutation on it. `useMonitorEvents`, mounted once in `_authed.tsx`, is what keeps them fresh — no query polls on its own timer; the server pushes a "these resources changed" signal over `/api/events` and this invalidates exactly the query keys it names. Components stay presentational. |
 | `services/api` | one axios-backed `<Resource>Service` class per resource, all extending `ApiClient` in `base.ts`, which unwraps the `{ data }` envelope and turns a failure into an `ApiError` carrying the server's `field`. |
 | `components` | presentational, prop-driven; unchanged in shape by the router migration. |
 | `constants/queryKeys.ts` | one array root per resource — `[...QueryKeys.runs, filters]` is how a hook narrows to its own cache entry without a naming collision. |
@@ -217,6 +247,56 @@ leaving a masked field untouched keeps what is stored.
 Muting a channel keeps it attached to its tasks but skips it when alerting.
 Deleting one keeps the run history it appears in, under the name it had.
 
+## Authentication
+
+Off by default, and that default is deliberate: a local dev instance and a
+deployment reachable only from `127.0.0.1` — which is still what
+`docker-compose.yml` publishes — have nothing to gain from a login step.
+
+Set `AUTH_PASSWORD` and the dashboard asks for it before showing anything.
+This is one shared password, not user accounts — the right fit for a
+single-tenant self-hosted service. If you need per-user access or audit trails,
+put an identity-aware proxy in front instead; this is not that.
+
+```bash
+# docker run
+-e AUTH_PASSWORD='pick-something-long-and-random'
+
+# .env
+AUTH_PASSWORD=pick-something-long-and-random
+```
+
+A correct password sets an `HttpOnly` session cookie, good for
+`AUTH_SESSION_TTL_HOURS` (default 30 days). The signing key is derived from the
+same master key that already encrypts channel credentials — see
+[Notification channels](#notification-channels) — rather than being a second
+secret to generate and back up. Because the password is part of that
+derivation, **changing `AUTH_PASSWORD` and restarting signs out every session at
+once**; there is no per-session revocation otherwise, so that restart is the log
+-out-everywhere button.
+
+Five wrong passwords from one address closes a 15-minute window on it. That is
+enough to blunt casual guessing on a machine with no proxy in front; a
+deployment reachable from the open internet should still rate-limit at the
+proxy, since the limiter's per-IP key collapses to one shared bucket behind
+one.
+
+`AUTH_COOKIE_SECURE` defaults to `auto`, which sets the cookie's `Secure`
+attribute only when the request actually arrived over TLS. This matters because
+a hardcoded `Secure` cookie makes login silently impossible over a plain
+`http://192.168.1.20:3000` LAN deployment — the browser accepts the response,
+drops the cookie, and every request after that 401s with nothing on screen to
+explain why. Set it to `true` once you are behind TLS.
+
+What stays reachable without a session: the dashboard's own HTML/JS/CSS (the
+login page *is* this app, so it has to load before anyone can sign in), and
+`GET /api/health`, because Docker's `HEALTHCHECK` cannot authenticate — an
+anonymous caller gets `{"ok": true}` and nothing else, since the full response
+names the browser endpoint and version and counts tasks and channels.
+`/api/events`, the dashboard's websocket, needs no special handling: it is
+guarded like any other route, and the browser attaches the session cookie to a
+same-origin handshake on its own.
+
 ### Tasks with no definition
 
 A task can exist with no usable spec — a row written by an older version, or one
@@ -227,37 +307,88 @@ lock you out of the only UI that can clean it up.
 
 ## Browsers
 
-Both speak CDP, so switching is one line in `.env` — no code changes.
+All three speak CDP, so switching is one line in `.env` — no code changes.
 
-For local development (`make start-server` on the host) start only the browser,
-not the app container:
+| | Lightpanda (default) | Chrome (fallback) | Bundled (`:standalone` image) |
+|---|---|---|---|
+| Start | `docker compose up -d lightpanda` | `docker compose --profile chrome up -d chrome` | nothing — it's inside the image |
+| `BROWSER_WS_ENDPOINT` | `ws://127.0.0.1:9222` | `http://127.0.0.1:9223` | set for you |
+| Image size | this app stays ~50MB | this app stays ~50MB | ~600MB, Chromium included |
+| Speed / memory | very fast, light | heavier | heavier |
+| Screenshots, PDF, WebGL | no — it never renders | yes | yes |
+| Web API coverage | partial (Beta) | complete | complete |
 
-| | Lightpanda (default) | Chrome (fallback) |
-|---|---|---|
-| Start | `docker compose up -d lightpanda` | `docker compose --profile chrome up -d chrome` |
-| `BROWSER_WS_ENDPOINT` | `ws://127.0.0.1:9222` | `http://127.0.0.1:9223` |
-| Speed / memory | very fast, light | heavier |
-| Screenshots, PDF, WebGL | no — it never renders | yes |
-| Web API coverage | partial (Beta) | complete |
+The first two are what `docker-compose.yml` runs — start the browser separately
+from the app, same as local development (`make start-server` on the host).
+Bundled is the `breckr:standalone` image: a single `docker run` with no
+companion container, at the cost of ~550MB and requiring `--shm-size=1g` (the
+default 64MB `/dev/shm` a container gets crashes Chromium on real pages).
 
-Chrome takes an `http://` address because its browser socket carries a
-per-launch UUID; the server resolves the real endpoint itself via
-`/json/version`.
+Chrome and the bundled Chromium both take an `http://` address because the
+browser socket carries a per-launch UUID; the server resolves the real endpoint
+itself via `/json/version`.
 
 **If a site returns empty results or throws on Lightpanda, that is the expected
-coverage failure** — start Chrome, change the one line, and re-run.
+coverage failure** — switch engines and re-run.
 
-> **Security:** an exposed CDP port is remote code execution. Both services
-> publish to `127.0.0.1` only. Never widen that to `0.0.0.0` to fix a connection
-> problem.
+> **Security:** an exposed CDP port is remote code execution. Every CDP port in
+> this repo's compose files, and the bundled image's internal one, is bound to
+> `127.0.0.1` and never published beyond it. Never widen that to `0.0.0.0` to
+> fix a connection problem.
 
-## Deployment (Ubuntu)
+## Images
 
-One command builds and runs everything — the app and the browser it drives:
+Two tags under [`reyzartz/breckr`](https://hub.docker.com/r/reyzartz/breckr),
+both `linux/amd64` and `linux/arm64`:
+
+| tag | contains | size | use with |
+|---|---|---|---|
+| `latest` | just the app | ~50MB | `docker-compose.yml` / `deploy/compose.yaml`, or your own browser |
+| `standalone` | the app + headless Chromium | ~600MB | a single `docker run`, no companion container |
+
+Versioned tags follow semver from the git tag: `v1.2.3` publishes `1.2.3`,
+`1.2`, `1` and `latest`, and `1.2.3-standalone` … `standalone` alongside them.
+
+## Deployment
+
+Three ways to run this, in increasing order of "how much do I want to build
+myself":
+
+**From the published image, Compose (recommended for a server):**
 
 ```bash
-git clone <repo> && cd breckr
-cp .env.example .env   # fill in BROWSER_WS_ENDPOINT, TZ, etc.
+curl -O https://raw.githubusercontent.com/Reyzartz/breckr/master/deploy/compose.yaml
+AUTH_PASSWORD='pick-something-long-and-random' docker compose up -d
+```
+
+No clone. Brings Lightpanda with it, publishes to `127.0.0.1` by default — see
+`BIND_ADDRESS` in [Configuration](#configuration) before widening that.
+
+**From the published image, `docker run`:** see
+[Quick start](#quick-start-docker) for `:standalone`, or for `:latest` with an
+external browser:
+
+```bash
+docker network create breckr
+docker run -d --name lightpanda --network breckr --restart unless-stopped \
+  lightpanda/browser:nightly \
+  /usr/bin/lightpanda serve --host 0.0.0.0 --port 9222
+docker run -d --name breckr --network breckr \
+  -p 127.0.0.1:3000:3000 -v breckr-data:/app/data \
+  -e BROWSER_WS_ENDPOINT=ws://lightpanda:9222 \
+  -e AUTH_PASSWORD='pick-something-long-and-random' \
+  --restart unless-stopped reyzartz/breckr:latest
+```
+
+Note lightpanda's `9222` is never published — the user-defined network is how
+`breckr` reaches it. Do not add `-p 9222:9222`.
+
+**From source, Compose (recommended for development, or if you're modifying
+the code):**
+
+```bash
+git clone https://github.com/Reyzartz/breckr && cd breckr
+cp .env.example .env   # fill in TZ, AUTH_PASSWORD, etc.
 docker compose up -d --build
 ```
 
@@ -268,8 +399,12 @@ the whole thing is one port and nginx is optional. Compose runs exactly one
 instance of the app — a second would fight the first over the browser and double
 every scheduled run.
 
-Redeploy after pulling changes. Tasks themselves need no redeploy — they live in
-the database:
+Upgrading, published image: `docker compose pull && docker compose up -d`. Note
+that `docker-compose.yml` (the from-source file) also carries an `image:` tag,
+so a local `--build` shadows a pulled image under that same tag until you pull
+again.
+
+Upgrading, from source:
 
 ```bash
 git pull && docker compose up -d --build
@@ -277,7 +412,20 @@ git pull && docker compose up -d --build
 
 Logs: `docker compose logs -f app`. The SQLite database lives in `./data`,
 bind-mounted into the container, so it survives `docker compose down` and
-image rebuilds.
+image rebuilds — back up `monitor.db` *and* `secret.key` together, since the
+database cannot be read without the key.
+
+By default every container in this repo's compose files runs as root, same as
+before. To run as your own user instead:
+
+```bash
+sudo chown -R "$(id -u):$(id -g)" ./data   # not chmod -- see below
+docker run --user "$(id -u):$(id -g)" -v "$PWD/data:/app/data" ... reyzartz/breckr:latest
+```
+
+`chown`, never `chmod`: loosening `data/`'s permissions with `chmod -R` also
+loosens `secret.key`, and the server refuses to start with a key file anyone
+else on the box can read.
 
 ## The contract on two sides
 
@@ -294,12 +442,16 @@ only stops the form offering a pairing the server would reject anyway.
 
 ## Configuration
 
-All in `.env` (see `.env.example`). `BROWSER_WS_ENDPOINT`, `PORT`, `HOST`,
-`DB_PATH`, `TZ` (cron uses wall-clock time in this zone),
-`DEFAULT_TIMEOUT_MS`, `RUN_RETENTION_DAYS`, `CLIENT_DIST` (the dashboard build to
-serve), `CLIENT_ALLOWED_ORIGIN`, `SECRET_KEY_FILE` (defaults to `secret.key`
-beside the database). Missing or contradictory values fail at boot rather than at
-the first tick.
+All in `.env` (see `.env.example`). `BROWSER_WS_ENDPOINT` (not needed at all on
+the `:standalone` image, which sets it for you), `PORT`, `HOST`, `BIND_ADDRESS`
+(which host interface Compose publishes the app on — loopback by default;
+widen it only alongside `AUTH_PASSWORD`), `DB_PATH`, `TZ` (cron uses wall-clock
+time in this zone), `DEFAULT_TIMEOUT_MS`, `RUN_RETENTION_DAYS`, `CLIENT_DIST`
+(the dashboard build to serve), `CLIENT_ALLOWED_ORIGIN` (rejected as `*` at boot
+once `AUTH_PASSWORD` is set — see [Authentication](#authentication)),
+`SECRET_KEY_FILE` (defaults to `secret.key` beside the database),
+`AUTH_PASSWORD`, `AUTH_SESSION_TTL_HOURS`, `AUTH_COOKIE_SECURE`. Missing or
+contradictory values fail at boot rather than at the first tick.
 
 Notification credentials are deliberately absent: channels are managed from the
 dashboard and stored encrypted in the database.
@@ -312,7 +464,10 @@ Relative `DB_PATH` and `CLIENT_DIST` resolve against the directory holding the
 
 | Route | |
 |---|---|
-| `GET /api/health` | liveness + whether the browser is reachable |
+| `POST /api/auth/login` | `{ password }` → sets the session cookie. No session needed to call it. |
+| `POST /api/auth/logout` | clears the session cookie. No session needed to call it. |
+| `GET /api/auth/status` | `{ required, authenticated }` — whether this server asks for a password, and whether you have one |
+| `GET /api/health` | liveness always; the rest — whether the browser is reachable, task/channel counts — only with a session, or when `AUTH_PASSWORD` is unset |
 | `GET /api/tasks` | tasks with last run and next run time |
 | `POST /api/tasks` | create; schedules it immediately |
 | `PATCH /api/tasks/:id` | any of `{ enabled, name, schedule \| cron_expr, spec, notify_mode, channel_ids }` |
@@ -331,6 +486,11 @@ Relative `DB_PATH` and `CLIENT_DIST` resolve against the directory holding the
 Every successful response is `{ "data": … }`. Failures are `{ "error": … }` at
 the top level, with a `field` naming the control that was wrong when a spec
 fails validation.
+
+Every route below `/api/auth/*` requires a session when `AUTH_PASSWORD` is set
+— a request with no valid session cookie gets `401 { "error": "Not signed
+in." }`. With no password configured, every request is treated as
+authenticated and nothing here changes.
 
 Creating or updating a task takes either a structured `schedule` — what the
 dashboard's builder sends, converted to cron by the server — or a raw
