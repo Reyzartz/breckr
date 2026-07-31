@@ -6,9 +6,30 @@ import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
 import { queryClient } from "./config/index.ts";
 import { routeTree } from "./routeTree.gen.ts";
+import { setUnauthorizedHandler } from "./services/api/base.ts";
+import { QueryKeys } from "./constants/queryKeys.ts";
 import "./index.css";
 
-const router = createRouter({ routeTree, defaultPreload: "intent" });
+const router = createRouter({ routeTree, defaultPreload: "intent", context: { queryClient } });
+
+/**
+ * What happens when a session expires under a dashboard that is already open.
+ *
+ * The cache is corrected before the navigation, not after: `_authed`'s
+ * `beforeLoad` reads exactly this entry, and leaving a stale "authenticated"
+ * there would let it wave the user straight back through to a page whose every
+ * query is about to 401 again.
+ *
+ * A router navigation rather than a location assignment, so an expired session
+ * costs a re-render rather than a full page reload.
+ */
+setUnauthorizedHandler(() => {
+  queryClient.setQueryData(QueryKeys.auth, { required: true, authenticated: false });
+  void router.navigate({
+    to: "/login",
+    search: { redirect: window.location.pathname + window.location.search },
+  });
+});
 
 // Registers the router's types globally, so `Link`, `useNavigate` and route
 // hooks are typed against this app's actual routes everywhere they're used.

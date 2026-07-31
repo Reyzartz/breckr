@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient, type QueryKey } from "@tanstack/react-query";
 import { eventsUrl, parseChangeEvent } from "../services/api/events.ts";
+import { authService } from "../services/api/auth.ts";
+import { notifyUnauthorized } from "../services/api/base.ts";
 import { config } from "../config/index.ts";
 import { QueryKeys } from "../constants/queryKeys.ts";
 import type { MonitorResource } from "../types/index.ts";
@@ -85,7 +87,27 @@ export function useMonitorEvents(): ConnectionState {
         if (disposed) return;
 
         setConnection("reconnecting");
-        scheduleReconnect();
+
+        // A restarting server and an expired session both close the socket, and
+        // only one of them is worth interrupting the user over. Without asking,
+        // an expired session reads as a permanent "Reconnecting…" against a
+        // handshake that will 401 forever.
+        //
+        // The rejection branch is the important one: a server that is down
+        // cannot answer this either, and that case must keep retrying rather
+        // than bounce someone to a login page they do not need.
+        void authService.fetchStatus().then(
+          (status) => {
+            if (status.required && !status.authenticated) {
+              notifyUnauthorized();
+            } else {
+              scheduleReconnect();
+            }
+          },
+          () => {
+            scheduleReconnect();
+          }
+        );
       };
     };
 

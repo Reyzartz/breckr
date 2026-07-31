@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import type { Run, RunStatus } from "../types/index.ts";
-import { RunHistory } from "../components/RunHistory.tsx";
-import { RunDetail } from "../components/RunDetail.tsx";
-import { useTasks } from "../hooks/useTasks.ts";
-import { useRuns, type RunFilters } from "../hooks/useRuns.ts";
-import { PAGE_SIZE } from "../constants/index.ts";
+import type { Run, RunStatus } from "../../types/index.ts";
+import { RunHistory } from "../../components/RunHistory.tsx";
+import { RunDetail } from "../../components/RunDetail.tsx";
+import { useTasks } from "../../hooks/useTasks.ts";
+import { useRuns, type RunFilters } from "../../hooks/useRuns.ts";
+import { PAGE_SIZE } from "../../constants/index.ts";
 
 function isRunStatus(value: unknown): value is RunStatus {
   return value === "running" || value === "success" || value === "failed";
@@ -18,7 +18,7 @@ function isRunStatus(value: unknown): value is RunStatus {
  * paged view of the history is now a URL you can bookmark or send someone,
  * rather than state that resets the moment the tab reloads.
  */
-export const Route = createFileRoute("/runs")({
+export const Route = createFileRoute("/_authed/runs")({
   validateSearch: (search: Record<string, unknown>): RunFilters => ({
     taskId: typeof search.taskId === "string" ? search.taskId : undefined,
     status: isRunStatus(search.status) ? search.status : undefined,

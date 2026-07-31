@@ -11,4 +11,5 @@ export const QueryKeys = {
   runs: ["runs"] as const,
   health: ["health"] as const,
   channels: ["channels"] as const,
+  auth: ["auth"] as const,
 } as const;
