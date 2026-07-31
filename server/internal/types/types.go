@@ -496,6 +496,37 @@ type HealthResponse struct {
 	Timezone      string         `json:"timezone"`
 }
 
+// AnonymousHealthResponse is what /api/health tells a caller who is not signed
+// in.
+//
+// The route stays public because Docker's healthcheck cannot authenticate, but
+// the full response names the browser endpoint and version and counts the tasks
+// and channels -- reconnaissance worth having for anyone probing an exposed
+// instance. Liveness is all an anonymous caller is owed.
+type AnonymousHealthResponse struct {
+	OK bool `json:"ok"`
+}
+
+// AuthStatusResponse tells the dashboard whether to show a login page at all.
+//
+// Separate from health rather than a field on it: health is the thing being
+// redacted above, and a body whose shape depends on auth state is a poor place
+// to put the answer to "am I signed in".
+type AuthStatusResponse struct {
+	// Required is false when no password is configured, and the dashboard then
+	// renders no auth UI whatsoever.
+	Required      bool `json:"required"`
+	Authenticated bool `json:"authenticated"`
+}
+
+type LoginRequest struct {
+	Password string `json:"password"`
+}
+
+type LoginResponse struct {
+	OK bool `json:"ok"`
+}
+
 // TestNotificationResponse is the outcome of a channel test: one real delivery
 // attempt, on demand.
 //
@@ -601,8 +632,8 @@ type UpdateTaskRequest struct {
 // CreateChannelRequest creates a delivery destination. Config is left raw here
 // and parsed according to Type, which is the only thing that knows its shape.
 type CreateChannelRequest struct {
-	Name string          `json:"name"`
-	Type ChannelType     `json:"type"`
+	Name   string          `json:"name"`
+	Type   ChannelType     `json:"type"`
 	Config json.RawMessage `json:"config"`
 	// Defaults to true.
 	Enabled *bool `json:"enabled,omitempty"`

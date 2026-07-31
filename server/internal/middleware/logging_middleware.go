@@ -1,8 +1,14 @@
 // Package middleware holds the cross-cutting HTTP handlers.
 //
-// There is deliberately no authentication here. Task specs are interpreted and
-// never evaluated, and the security posture rests on binding to loopback and on
-// every published Docker port being 127.0.0.1-scoped -- see the README.
+// Authentication is optional and off by default: unset AUTH_PASSWORD and every
+// request is authenticated, which is the right posture for a deployment
+// reachable only from loopback -- which is still what the compose file
+// publishes. Setting it is what makes exposing the port beyond this machine a
+// reasonable thing to do.
+//
+// Neither is the whole story on its own. Task specs are interpreted and never
+// evaluated, so nothing anyone types becomes code even after they are past the
+// login -- see the executor.
 package middleware
 
 import (

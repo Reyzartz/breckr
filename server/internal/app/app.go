@@ -6,9 +6,12 @@ import (
 	"context"
 	"database/sql"
 	"log"
+	"net/netip"
 	"os"
+	"strings"
 
 	"breckr-server/internal/api"
+	"breckr-server/internal/auth"
 	"breckr-server/internal/browser"
 	"breckr-server/internal/config"
 	"breckr-server/internal/crypto"
@@ -35,7 +38,9 @@ type Application struct {
 	RunHandler        *api.RunHandler
 	ChannelHandler    *api.ChannelHandler
 	EventsHandler     *api.EventsHandler
+	AuthHandler       *api.AuthHandler
 	LoggingMiddleware *middleware.LoggingMiddleware
+	AuthMiddleware    *middleware.AuthMiddleware
 
 	cfg     *config.Config
 	browser *browser.Pool
@@ -61,6 +66,16 @@ func NewApplication(cfg *config.Config) (*Application, error) {
 		return nil, err
 	}
 	cipher, err := crypto.New(key)
+	if err != nil {
+		return nil, err
+	}
+
+	// The same master key, one derivation removed. Deriving rather than
+	// generating a second secret means there is still exactly one file to back
+	// up beside the database.
+	sessions, err := auth.NewSessions(
+		key, cfg.Security.AuthPassword, cfg.Security.SessionTTL, cfg.Security.CookieSecure,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +118,9 @@ func NewApplication(cfg *config.Config) (*Application, error) {
 		// delivery path a real alert takes rather than a parallel one.
 		ChannelHandler:    api.NewChannelHandler(logger, channelStore, dispatcher, bus),
 		EventsHandler:     api.NewEventsHandler(logger, bus, cfg.Client.AllowedOrigins),
+		AuthHandler:       api.NewAuthHandler(logger, sessions, auth.NewThrottle()),
 		LoggingMiddleware: middleware.NewLoggingMiddleware(logger),
+		AuthMiddleware:    middleware.NewAuthMiddleware(sessions),
 		cfg:               cfg,
 		browser:           browserPool,
 	}, nil
@@ -111,6 +128,8 @@ func NewApplication(cfg *config.Config) (*Application, error) {
 
 // Boot resolves anything the last shutdown left behind and arms every schedule.
 func (a *Application) Boot() error {
+	a.warnIfUnprotected()
+
 	// A run row is written before the task executes, so a crash mid-run leaves
 	// a dangling 'running' row. Resolve those here -- otherwise they stay "in
 	// progress" forever in the dashboard.
@@ -140,6 +159,39 @@ func (a *Application) Boot() error {
 	go a.watchBrowserHealth(healthCtx)
 
 	return nil
+}
+
+// warnIfUnprotected says so when the server is listening beyond loopback with no
+// password.
+//
+// It cannot know whether that is actually dangerous: the image binds 0.0.0.0 so
+// that `docker run -p` works at all, and compose then publishes only to
+// 127.0.0.1 -- a perfectly safe arrangement that looks identical from in here.
+// So it describes what is reachable and leaves the judgement to whoever can see
+// the port mapping.
+func (a *Application) warnIfUnprotected() {
+	if a.cfg.Security.AuthPassword != "" || isLoopback(a.cfg.Server.Host) {
+		return
+	}
+
+	a.Logger.Printf(
+		"WARN: AUTH_PASSWORD is not set and the server is bound to %s -- anyone who can reach "+
+			"this port can create tasks, browse run history and see your channels. Set AUTH_PASSWORD "+
+			"unless this port is reachable only from your own machine.",
+		a.cfg.Server.Host,
+	)
+}
+
+func isLoopback(host string) bool {
+	switch host {
+	case "", "0.0.0.0", "::", "[::]":
+		return false
+	case "localhost":
+		return true
+	}
+
+	address, err := netip.ParseAddr(strings.Trim(host, "[]"))
+	return err == nil && address.IsLoopback()
 }
 
 // onTrigger is what a fired schedule calls. Runs are fire-and-forget: RunTask
