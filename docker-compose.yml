@@ -1,48 +1,65 @@
-# The whole thing: the app (built from ./Dockerfile) plus the browser it
-# drives over CDP. `docker compose up -d --build` is the entire deployment.
+# The development and from-source file: builds the image from this checkout.
+#
+# To run the published image instead, without a clone, use deploy/compose.yaml:
+#   curl -O https://raw.githubusercontent.com/Reyzartz/breckr/master/deploy/compose.yaml
 #
 # SECURITY: an open CDP port is remote code execution -- anyone who can reach it
-# can drive a browser, read local files through it and pivot into this host.
-# Every port below is published to 127.0.0.1 only, and must stay that way.
-# Do not "fix" a connection problem by widening these to 0.0.0.0.
+# can drive a browser, read local files through it and pivot into this host. The
+# browser's port below is published to 127.0.0.1 only, and must stay that way.
+# Do not "fix" a connection problem by widening it to 0.0.0.0.
+#
+# The app's own port defaults to 127.0.0.1 too. Widening that one is a real
+# option -- but set AUTH_PASSWORD first, or you have published an unauthenticated
+# task runner. See BIND_ADDRESS in .env.example.
 
 services:
   app:
     build:
       context: .
       dockerfile: Dockerfile
+      # Without this, the build picks the last stage -- which is `standalone`,
+      # with a whole Chromium in it. Compose has lightpanda next door and wants
+      # the slim one.
+      target: runtime
+    # Tags what `build` produces, and is what makes `docker compose pull`
+    # meaningful. Note that a local build shadows a pulled image under this same
+    # tag until you pull again.
+    image: reyzartz/breckr:latest
     container_name: web-task-monitor
     restart: unless-stopped
     depends_on:
       - lightpanda
     env_file:
-      - .env
+      # Optional, so this file runs in a fresh clone with nothing configured.
+      # Compose still reads ./.env for the ${...} interpolation below either way.
+      - path: .env
+        required: false
     environment:
       # Overrides for the values in .env that mean something different (or
-      # nothing) inside a container: the server must bind every interface to be
-      # reachable through Docker's port mapping, the browser is reached by its
-      # Compose service name rather than host loopback, and the dashboard build
-      # sits where the image put it.
-      HOST: 0.0.0.0
+      # nothing) inside a container: the browser is reached by its Compose
+      # service name rather than host loopback, and the database sits on the
+      # volume rather than wherever a host-relative path would land.
+      #
+      # HOST and CLIENT_DIST are not here any more -- the image sets both.
       DB_PATH: /app/data/monitor.db
-      CLIENT_DIST: /app/client/dist
       # Set DOCKER_BROWSER_WS_ENDPOINT in .env to point at the chrome service
       # instead (http://chrome:9222) without touching this file.
       BROWSER_WS_ENDPOINT: ${DOCKER_BROWSER_WS_ENDPOINT:-ws://lightpanda:9222}
+      # Empty means no login page at all, which is the right default while this
+      # is published to loopback only.
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+      TZ: ${TZ:-UTC}
     volumes:
       # SQLite must survive `docker compose down` / image rebuilds -- same
       # data/ directory the host already gitignores.
       - ./data:/app/data
     ports:
-      - "127.0.0.1:${PORT:-3000}:${PORT:-3000}"
-    healthcheck:
-      # busybox wget is already in the image, so nothing needs installing for
-      # this. --spider makes it a HEAD-like probe that discards the body.
-      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:${PORT:-3000}/api/health || exit 1"]
-      interval: 30s
-      timeout: 5s
-      start_period: 10s
-      retries: 3
+      # Host side is configurable; the container side is fixed at 3000 because
+      # that is what the image binds. Interpolating both would let them drift
+      # apart the moment PORT is set in only one of the two places compose
+      # reads.
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-3000}:3000"
+    # The healthcheck moved into the Dockerfile, so `docker run` users get it too.
 
   # Default engine: tiny and fast, but Beta with partial Web API coverage and
   # no rendering at all (so no screenshots or PDF).
@@ -58,6 +75,8 @@ services:
     # through a shell -- it must be the binary path, not just its subcommand.
     command: ["/usr/bin/lightpanda", "serve", "--host", "0.0.0.0", "--port", "9222"]
     ports:
+      # Published only so a host-based `make start-server` can reach it. The app
+      # container does not need this -- it reaches the browser by service name.
       - "127.0.0.1:9222:9222"
 
   # Fallback for sites Lightpanda can't render. Opt in explicitly:

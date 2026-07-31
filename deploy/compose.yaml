@@ -1,0 +1,57 @@
+# breckr, from the published images. No clone, no build.
+#
+#   curl -O https://raw.githubusercontent.com/Reyzartz/breckr/master/deploy/compose.yaml
+#   docker compose up -d
+#
+# Then open http://127.0.0.1:3000.
+#
+# Nothing here needs editing to work. Two things are worth setting, both as
+# environment variables or in a .env file beside this one:
+#
+#   AUTH_PASSWORD   a login for the dashboard. Required before you widen
+#                   BIND_ADDRESS -- without it, anyone who can reach the port
+#                   can create tasks that drive a browser at any URL.
+#   TZ              the timezone cron expressions are matched against, e.g.
+#                   America/New_York. Defaults to UTC.
+#
+# Upgrading:  docker compose pull && docker compose up -d
+# Backup:     the breckr-data volume holds monitor.db *and* secret.key. Keep
+#             them together -- the database cannot be read without the key.
+
+services:
+  app:
+    image: reyzartz/breckr:latest
+    container_name: breckr
+    restart: unless-stopped
+    depends_on:
+      - lightpanda
+    environment:
+      BROWSER_WS_ENDPOINT: ws://lightpanda:9222
+      # Empty means no login page at all. Correct while the port below is
+      # loopback-only; set it before you change that.
+      AUTH_PASSWORD: ${AUTH_PASSWORD:-}
+      TZ: ${TZ:-UTC}
+    volumes:
+      # A named volume rather than a host directory: nothing to create first,
+      # and no file ownership to line up.
+      - breckr-data:/app/data
+    ports:
+      # Loopback by default. Set BIND_ADDRESS=0.0.0.0 to reach it from
+      # elsewhere on your network -- after setting AUTH_PASSWORD.
+      - "${BIND_ADDRESS:-127.0.0.1}:${PORT:-3000}:3000"
+
+  # The browser the tasks drive. Small and fast, with partial Web API coverage:
+  # if a site comes back empty, switch this image to chromedp/headless-shell
+  # and the endpoint above to http://chrome:9222.
+  lightpanda:
+    image: lightpanda/browser:nightly
+    container_name: breckr-browser
+    restart: unless-stopped
+    command: ["/usr/bin/lightpanda", "serve", "--host", "0.0.0.0", "--port", "9222"]
+    # No `ports:` on purpose. The app reaches this over the compose network by
+    # service name, and an open CDP port is remote code execution -- publishing
+    # it would hand anyone who could reach it a browser to drive and a way into
+    # this host.
+
+volumes:
+  breckr-data:
