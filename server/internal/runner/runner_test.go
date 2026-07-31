@@ -14,6 +14,7 @@ import (
 	"breckr-server/internal/browser"
 	"breckr-server/internal/config"
 	"breckr-server/internal/crypto"
+	"breckr-server/internal/events"
 	"breckr-server/internal/migrations"
 	"breckr-server/internal/notifier"
 	"breckr-server/internal/store"
@@ -132,7 +133,9 @@ func newHarness(t *testing.T, outcome types.NotificationOutcome) *harness {
 	quiet := log.New(io.Discard, "", 0)
 
 	return &harness{
-		runner:   New(tasks, runs, channels, browser.NewPool(cfg), notify, quiet),
+		// A real bus with nobody subscribed: publishing is then a no-op, and
+		// the runner is still wired to the type it uses in production.
+		runner:   New(tasks, runs, channels, browser.NewPool(cfg), notify, events.New(), quiet),
 		tasks:    tasks,
 		runs:     runs,
 		channels: channels,

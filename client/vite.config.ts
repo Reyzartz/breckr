@@ -19,6 +19,13 @@ export default defineConfig({
       "/api": {
         target: "http://127.0.0.1:3000",
         changeOrigin: true,
+        // /api/events is a websocket. Without this the upgrade is not
+        // forwarded and the dashboard silently never updates.
+        //
+        // Note that changeOrigin rewrites Host but not Origin, so the server
+        // does not see the handshake as same-origin and checks it against
+        // CLIENT_ALLOWED_ORIGIN — which defaults to this dev server.
+        ws: true,
       },
     },
   },

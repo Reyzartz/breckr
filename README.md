@@ -58,7 +58,7 @@ Inside `client/src`:
 | | |
 |---|---|
 | `routes` | one file per page — `/` (dashboard), `/runs` (history), `/channels` — plus `__root.tsx` for the shared header/nav. `@tanstack/router-plugin` generates `routeTree.gen.ts` from this folder; it's gitignored, not checked in. |
-| `hooks` | one `use<Resource>` per resource (`useTasks`, `useRuns`, `useHealth`, `useChannels`), each a thin TanStack Query wrapper: the query plus every mutation on it, polling on `config.pollIntervalMs`. Components stay presentational. |
+| `hooks` | one `use<Resource>` per resource (`useTasks`, `useRuns`, `useHealth`, `useChannels`), each a thin TanStack Query wrapper: the query plus every mutation on it. `useMonitorEvents`, mounted once in `__root.tsx`, is what keeps them fresh — no query polls on its own timer; the server pushes a "these resources changed" signal over `/api/events` and this invalidates exactly the query keys it names. Components stay presentational. |
 | `services/api` | one axios-backed `<Resource>Service` class per resource, all extending `ApiClient` in `base.ts`, which unwraps the `{ data }` envelope and turns a failure into an `ApiError` carrying the server's `field`. |
 | `components` | presentational, prop-driven; unchanged in shape by the router migration. |
 | `constants/queryKeys.ts` | one array root per resource — `[...QueryKeys.runs, filters]` is how a hook narrows to its own cache entry without a naming collision. |

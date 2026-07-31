@@ -2,7 +2,6 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { RunStatus } from "../types/index.ts";
 import { runService, toErrorMessage } from "../services/api/index.ts";
 import { QueryKeys } from "../constants/queryKeys.ts";
-import { config } from "../config/index.ts";
 import { PAGE_SIZE } from "../constants/index.ts";
 
 export interface RunFilters {
@@ -27,7 +26,6 @@ export function useRuns(filters: RunFilters) {
   const query = useQuery({
     queryKey: [...QueryKeys.runs, filters],
     queryFn: () => runService.fetchRuns({ ...filters, limit: filters.limit ?? PAGE_SIZE }),
-    refetchInterval: config.pollIntervalMs,
     placeholderData: keepPreviousData,
   });
 

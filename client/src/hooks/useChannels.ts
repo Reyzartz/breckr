@@ -7,7 +7,6 @@ import type {
 } from "../types/index.ts";
 import { channelService, toErrorMessage } from "../services/api/index.ts";
 import { QueryKeys } from "../constants/queryKeys.ts";
-import { config } from "../config/index.ts";
 
 /** Synthesizes an outcome from a rejected test, so a network failure renders
  * in the same place a reported delivery failure does. Landing here means the
@@ -39,7 +38,6 @@ export function useChannels() {
   const channelsQuery = useQuery({
     queryKey: QueryKeys.channels,
     queryFn: () => channelService.fetchChannels(),
-    refetchInterval: config.pollIntervalMs,
   });
 
   const invalidateChannels = () =>

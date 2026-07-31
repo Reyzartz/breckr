@@ -17,6 +17,7 @@ import (
 	"breckr-server/internal/browser"
 	"breckr-server/internal/config"
 	"breckr-server/internal/crypto"
+	"breckr-server/internal/events"
 	"breckr-server/internal/migrations"
 	"breckr-server/internal/notifier"
 	"breckr-server/internal/store"
@@ -112,7 +113,7 @@ func newLiveHarness(t *testing.T) *liveHarness {
 
 	return &liveHarness{
 		runner: New(tasks, runs, channels, browser.NewPool(cfg),
-			notifier.NewDispatcher(channels, quiet), quiet),
+			notifier.NewDispatcher(channels, quiet), events.New(), quiet),
 		tasks:    tasks,
 		channels: channels,
 		db:       db,

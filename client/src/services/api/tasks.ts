@@ -1,7 +1,7 @@
 import { ApiClient } from "./base.ts";
 import type {
   CreateTaskRequest,
-  RunOutcome,
+  RunAcceptedResponse,
   TaskWithStatus,
   TestTaskRequest,
   TestTaskResponse,
@@ -39,9 +39,15 @@ export class TaskService extends ApiClient {
     return this.post<TestTaskResponse>("/tasks/test", input);
   }
 
-  /** Triggers immediately; works even while the task is disabled. */
-  runTaskNow(id: string): Promise<RunOutcome> {
-    return this.post<RunOutcome>(`/tasks/${encodeURIComponent(id)}/run-now`);
+  /**
+   * Triggers immediately; works even while the task is disabled.
+   *
+   * Resolves as soon as the run has been *started*, not when it finishes --
+   * the run row then arrives over the event socket as it appears and
+   * resolves. There is no outcome to read here, and nothing to await for one.
+   */
+  runTaskNow(id: string): Promise<RunAcceptedResponse> {
+    return this.post<RunAcceptedResponse>(`/tasks/${encodeURIComponent(id)}/run-now`);
   }
 }
 

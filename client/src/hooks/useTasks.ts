@@ -6,7 +6,6 @@ import type {
 } from "../types/index.ts";
 import { taskService, toErrorMessage } from "../services/api/index.ts";
 import { QueryKeys } from "../constants/queryKeys.ts";
-import { config } from "../config/index.ts";
 
 /**
  * Tasks: the list, and every mutation the dashboard performs on one.
@@ -24,7 +23,6 @@ export function useTasks() {
   const tasksQuery = useQuery({
     queryKey: QueryKeys.tasks,
     queryFn: () => taskService.fetchTasks(),
-    refetchInterval: config.pollIntervalMs,
   });
 
   const invalidateTasks = () => queryClient.invalidateQueries({ queryKey: QueryKeys.tasks });
@@ -69,11 +67,20 @@ export function useTasks() {
     mutationFn: (input: TestTaskRequest) => taskService.testTask(input),
   });
 
-  /** A task with an in-flight "run now" or delete -- what TaskCard disables. */
+  /**
+   * A task with an in-flight "run now" or delete -- what TaskCard disables.
+   *
+   * `run-now` answers as soon as the run is started, not when it finishes, so
+   * `runNowMutation.isPending` alone would only cover the request itself.
+   * `last_run.status === "running"` covers the rest of the run's actual
+   * duration -- server truth pushed by the event socket, not a timer.
+   */
   function isTaskBusy(id: string): boolean {
+    const task = tasksQuery.data?.find((candidate) => candidate.id === id);
     return (
       (runNowMutation.isPending && runNowMutation.variables === id) ||
-      (deleteMutation.isPending && deleteMutation.variables === id)
+      (deleteMutation.isPending && deleteMutation.variables === id) ||
+      task?.last_run?.status === "running"
     );
   }
 

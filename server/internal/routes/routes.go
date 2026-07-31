@@ -33,6 +33,10 @@ func RegisterRoutes(application *app.Application, cfg *config.Config) *chi.Mux {
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", application.HealthHandler.HandleHealthCheck)
 
+		// The dashboard's live connection. Everything below it is a plain
+		// request the client makes in response to what arrives here.
+		r.Get("/events", application.EventsHandler.HandleSubscribe)
+
 		r.Get("/tasks", application.TaskHandler.HandleGetAllTasks)
 		r.Post("/tasks", application.TaskHandler.HandleCreateTask)
 		r.Post("/tasks/test", application.TaskHandler.HandleTestTask)

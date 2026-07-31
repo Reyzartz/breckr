@@ -535,14 +535,24 @@ type TestTaskResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
-// RunOutcome is the outcome of a single run, returned by
-// POST /api/tasks/:id/run-now.
+// RunOutcome is the outcome of a single run. Returned by Runner.RunTask, and
+// recorded on the run row -- it is no longer an HTTP response body.
 type RunOutcome struct {
 	RunID        int64     `json:"runId"`
 	Status       RunStatus `json:"status"`
 	ConditionMet bool      `json:"conditionMet"`
 	Notified     bool      `json:"notified"`
 	Error        string    `json:"error,omitempty"`
+}
+
+// RunAcceptedResponse answers POST /api/tasks/:id/run-now.
+//
+// The route no longer waits for the run: it reports only that the run was
+// started, and the run row itself arrives over /api/events as it appears and
+// then resolves. Nothing here describes the outcome, because at this point
+// there is not one yet.
+type RunAcceptedResponse struct {
+	Accepted bool `json:"accepted"`
 }
 
 // --- Requests ---------------------------------------------------------------

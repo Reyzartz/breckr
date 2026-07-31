@@ -335,7 +335,7 @@ export interface HealthResponse {
   };
   /**
    * Whether alerts can be delivered at all. Counted rather than probed — a real
-   * probe would message the user's chat on every health poll.
+   * probe would message the user's chat every time health was checked.
    */
   notifications: {
     /** True when at least one enabled channel exists. */
@@ -387,13 +387,32 @@ export interface TestTaskResponse {
   error?: string;
 }
 
-/** Outcome of a single run, returned by POST /api/tasks/:id/run-now. */
-export interface RunOutcome {
-  runId: number;
-  status: RunStatus;
-  conditionMet: boolean;
-  notified: boolean;
-  error?: string;
+/**
+ * Answer to POST /api/tasks/:id/run-now.
+ *
+ * The route does not wait for the run: it reports only that one was started,
+ * and the run itself arrives over the event socket as it appears and then
+ * resolves. There is no outcome to report yet at this point.
+ */
+export interface RunAcceptedResponse {
+  accepted: boolean;
+}
+
+// --- Events ----------------------------------------------------------------
+
+/** One slice of dashboard state, as named by a change event. */
+export type MonitorResource = "tasks" | "runs" | "health" | "channels";
+
+/**
+ * What the server pushes over /api/events.
+ *
+ * Deliberately a signal and not a payload — the client refetches the named
+ * resources through the same routes it already uses, which keeps run filtering,
+ * pagination and totals server-side rather than reimplemented here.
+ */
+export interface ChangeEvent {
+  type: "changed";
+  resources: MonitorResource[];
 }
 
 export interface ErrorResponse {
