@@ -1,29 +1,21 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { Link } from "@tanstack/react-router";
 import {
   Alert,
   Badge,
   Button,
+  Card,
   ConfirmActionButton,
   Divider,
   Input,
-  Modal,
-  ModalBody,
-  ModalFooter,
-  ModalHeader,
   Select,
   Text,
   Toggle,
 } from "brake-ui";
-import { Bell, FlaskConical, Plus, SquarePen, Trash2 } from "lucide-react";
-import type {
-  Channel,
-  ChannelType,
-  CreateChannelRequest,
-  TestNotificationResponse,
-  UpdateChannelRequest,
-} from "../types/index.ts";
-import { testDraftChannel } from "../services/monitor.service.ts";
-import { ApiError, toErrorMessage } from "../apis/client.ts";
+import { ArrowLeft, Bell, FlaskConical, Plus, SquarePen, Trash2 } from "lucide-react";
+import type { Channel, ChannelType, TestNotificationResponse } from "../types/index.ts";
+import { useChannels } from "../hooks/useChannels.ts";
+import { ApiError, toErrorMessage } from "../services/api/index.ts";
 import {
   CHANNEL_FIELDS,
   CHANNEL_TYPE_LABEL,
@@ -31,21 +23,6 @@ import {
   MASK_PREFIX,
   type ChannelField,
 } from "../constants/index.ts";
-
-interface ChannelsModalProps {
-  isOpen: boolean;
-  channels: Channel[];
-  onClose: () => void;
-  onCreate: (input: CreateChannelRequest) => Promise<void>;
-  onSave: (id: string, patch: UpdateChannelRequest) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
-  onTest: (id: string) => Promise<void>;
-  /** Id of the channel currently being tested, or null. */
-  testingChannelId: string | null;
-  /** Outcome of the last test, wherever it was started from. */
-  notificationTest: TestNotificationResponse | null;
-  onDismissTest: () => void;
-}
 
 /** Every config field as a string, which is what the inputs edit. */
 type ConfigDraft = Record<string, string>;
@@ -103,24 +80,27 @@ function toConfig(type: ChannelType, draft: ConfigDraft): Record<string, unknown
   return config;
 }
 
-/**
- * Manage delivery destinations.
- *
- * A modal rather than a page because the dashboard has no router — the same
- * `editing: Channel | "new" | null` shape the task list already uses.
- */
-export function ChannelsModal({
-  isOpen,
-  channels,
-  onClose,
-  onCreate,
-  onSave,
-  onDelete,
-  onTest,
-  testingChannelId,
-  notificationTest,
-  onDismissTest,
-}: ChannelsModalProps) {
+function outcomeMessage(outcome: TestNotificationResponse): string {
+  return outcome.ok
+    ? "Test delivered — check the destination."
+    : `Test not delivered (${outcome.status}). ${outcome.detail ?? ""}`;
+}
+
+/** Manage delivery destinations. */
+export function ChannelsPage() {
+  const {
+    channels,
+    error,
+    createChannel,
+    updateChannel,
+    deleteChannel,
+    testChannel,
+    channelBeingTested,
+    testResult,
+    dismissTestResult,
+    testDraftChannel,
+  } = useChannels();
+
   const [editing, setEditing] = useState<Channel | "new" | null>(null);
   const [name, setName] = useState("");
   const [type, setType] = useState<ChannelType>("telegram");
@@ -138,21 +118,12 @@ export function ChannelsModal({
     null
   );
 
-  // Closing and reopening must not leave the last channel's credentials in the
-  // form.
-  useEffect(() => {
-    if (!isOpen) return;
-    setEditing(null);
-    setFieldError(null);
-    setFormError(null);
-  }, [isOpen]);
-
   const openEditor = (target: Channel | "new") => {
     setEditing(target);
     setFieldError(null);
     setFormError(null);
     setDraftTest(null);
-    onDismissTest();
+    dismissTestResult();
 
     if (target === "new") {
       setName("");
@@ -197,22 +168,20 @@ export function ChannelsModal({
   };
 
   const handleSubmit = async () => {
-    if (editing === null) return;
-
     setSaving(true);
     setFieldError(null);
     setFormError(null);
 
     try {
       if (editing === "new") {
-        await onCreate({
+        await createChannel({
           name: name.trim(),
           type,
           config: toConfig(type, draft),
           enabled,
         });
-      } else {
-        await onSave(editing.id, {
+      } else if (editing) {
+        await updateChannel(editing.id, {
           name: name.trim(),
           config: toConfig(type, draft),
           enabled,
@@ -234,7 +203,7 @@ export function ChannelsModal({
     setTestingDraft(true);
     setFieldError(null);
     setFormError(null);
-    onDismissTest();
+    dismissTestResult();
 
     try {
       setDraftTest(await testDraftChannel({ type, config: toConfig(type, draft) }));
@@ -261,23 +230,36 @@ export function ChannelsModal({
   );
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} maxWidth="lg">
-      <ModalHeader title="Notification channels" icon={Bell} />
+    <div className="flex h-full flex-col gap-4">
+      <div className="flex items-center gap-3">
+        <Link
+          to="/"
+          className="flex items-center gap-1 text-sm text-text-muted hover:text-text"
+        >
+          <ArrowLeft size={14} aria-hidden="true" />
+          Dashboard
+        </Link>
+      </div>
 
-      <ModalBody>
-        <div className="grid max-h-[60vh] gap-4 overflow-y-auto pr-1">
-          {notificationTest && (
-            <Alert variant={notificationTest.ok ? "success" : "error"}>
+      <div className="flex items-center gap-2">
+        <Bell size={20} aria-hidden="true" />
+        <Text variant="h4" as="h2">
+          Notification channels
+        </Text>
+      </div>
+
+      {error && <Alert variant="error">{error}</Alert>}
+
+      <Card size="lg" className="max-w-2xl">
+        <div className="grid gap-4">
+          {testResult && (
+            <Alert variant={testResult.ok ? "success" : "error"}>
               <span className="flex flex-wrap items-baseline gap-x-2">
-                <span>
-                  {notificationTest.ok
-                    ? "Test delivered — check the destination."
-                    : `Test not delivered (${notificationTest.status}). ${notificationTest.detail ?? ""}`}
-                </span>
+                <span>{outcomeMessage(testResult)}</span>
                 <button
                   type="button"
                   className="cursor-pointer underline underline-offset-2"
-                  onClick={onDismissTest}
+                  onClick={dismissTestResult}
                 >
                   Dismiss
                 </button>
@@ -325,10 +307,12 @@ export function ChannelsModal({
                           size="sm"
                           variant="ghost"
                           icon={FlaskConical}
-                          disabled={testingChannelId !== null}
-                          onClick={() => void onTest(channel.id)}
+                          disabled={channelBeingTested !== null}
+                          onClick={() => {
+                            testChannel(channel.id);
+                          }}
                         >
-                          {testingChannelId === channel.id ? "Sending…" : "Test"}
+                          {channelBeingTested === channel.id ? "Sending…" : "Test"}
                         </Button>
                         <Button
                           size="sm"
@@ -348,7 +332,7 @@ export function ChannelsModal({
                           message="Any task alerting only through this channel will stop alerting. Its run history is kept."
                           confirmText="Delete"
                           isDestructiveAction
-                          onConfirm={() => void onDelete(channel.id)}
+                          onConfirm={() => void deleteChannel(channel.id)}
                           aria-label={`Delete ${channel.name}`}
                         />
                       </div>
@@ -359,15 +343,17 @@ export function ChannelsModal({
 
               <Divider spacing="sm" />
 
-              <Button
-                size="sm"
-                icon={Plus}
-                onClick={() => {
-                  openEditor("new");
-                }}
-              >
-                Add channel
-              </Button>
+              <div>
+                <Button
+                  size="sm"
+                  icon={Plus}
+                  onClick={() => {
+                    openEditor("new");
+                  }}
+                >
+                  Add channel
+                </Button>
+              </div>
             </>
           ) : (
             <>
@@ -435,52 +421,40 @@ export function ChannelsModal({
 
               {draftTest && (
                 <Alert variant={draftTest.ok ? "success" : "error"}>
-                  {draftTest.ok
-                    ? "Test delivered — check the destination."
-                    : `Test not delivered (${draftTest.status}). ${draftTest.detail ?? ""}`}
+                  {outcomeMessage(draftTest)}
                 </Alert>
               )}
+
+              <div className="flex w-full flex-wrap items-center justify-between gap-2">
+                <Button
+                  variant="outlined"
+                  icon={FlaskConical}
+                  onClick={() => void handleTestDraft()}
+                  disabled={testingDraft || saving}
+                >
+                  {testingDraft ? "Testing…" : "Send test"}
+                </Button>
+
+                <div className="flex items-center gap-2">
+                  <Button variant="ghost" onClick={closeEditor} disabled={saving}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={() => void handleSubmit()}
+                    disabled={saving || testingDraft}
+                  >
+                    {saving
+                      ? "Saving…"
+                      : editing === "new"
+                        ? "Create channel"
+                        : "Save changes"}
+                  </Button>
+                </div>
+              </div>
             </>
           )}
         </div>
-      </ModalBody>
-
-      <ModalFooter>
-        {editing === null ? (
-          <div className="flex w-full justify-end">
-            <Button variant="ghost" onClick={onClose}>
-              Done
-            </Button>
-          </div>
-        ) : (
-          <div className="flex w-full flex-wrap items-center justify-between gap-2">
-            <Button
-              variant="outlined"
-              icon={FlaskConical}
-              onClick={() => void handleTestDraft()}
-              disabled={testingDraft || saving}
-            >
-              {testingDraft ? "Testing…" : "Send test"}
-            </Button>
-
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" onClick={closeEditor} disabled={saving}>
-                Cancel
-              </Button>
-              <Button
-                onClick={() => void handleSubmit()}
-                disabled={saving || testingDraft}
-              >
-                {saving
-                  ? "Saving…"
-                  : editing === "new"
-                    ? "Create channel"
-                    : "Save changes"}
-              </Button>
-            </div>
-          </div>
-        )}
-      </ModalFooter>
-    </Modal>
+      </Card>
+    </div>
   );
 }

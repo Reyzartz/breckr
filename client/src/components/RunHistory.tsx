@@ -9,7 +9,7 @@ import type {
 import { StatusBadge } from "./StatusBadge.tsx";
 import { NotificationBadge } from "./NotificationBadge.tsx";
 import { PAGE_SIZE, RUN_STATUSES } from "../constants/index.ts";
-import type { RunFilters } from "../hooks/useRunFilters.ts";
+import type { RunFilters } from "../hooks/useRuns.ts";
 import {
   absoluteTime,
   duration,
