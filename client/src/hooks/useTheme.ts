@@ -19,13 +19,13 @@ function systemTheme(): Theme {
 /**
  * Theme state, persisted and mirrored onto the document element.
  *
- * brake-ui carries no `dark:` classes — it swaps CSS variables off a
+ * broke-ui carries no `dark:` classes — it swaps CSS variables off a
  * `data-theme` attribute on any ancestor — so setting the attribute is all
  * that's required to restyle the whole tree.
  */
 export function useTheme(): { theme: Theme; toggleTheme: () => void } {
   const [theme, setTheme] = useState<Theme>(
-    () => readStoredTheme() ?? systemTheme()
+    () => readStoredTheme() ?? systemTheme(),
   );
 
   useEffect(() => {

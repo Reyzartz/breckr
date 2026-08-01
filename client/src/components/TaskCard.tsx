@@ -10,7 +10,7 @@ import {
   ModalHeader,
   Text,
   Toggle,
-} from "brake-ui";
+} from "broke-ui";
 import {
   BellRing,
   Clock,
@@ -63,7 +63,11 @@ export function TaskCard({
 
   const status = task.last_run?.status;
   const variant =
-    status === "failed" ? "errored" : task.condition_met ? "warning" : "default";
+    status === "failed"
+      ? "errored"
+      : task.condition_met
+        ? "warning"
+        : "default";
 
   return (
     <Card variant={variant}>
@@ -184,7 +188,9 @@ export function TaskCard({
               title={absoluteTime(task.next_run)}
             >
               <Clock size={12} aria-hidden="true" />
-              {task.next_run ? `next ${timeAgo(task.next_run)}` : "not scheduled"}
+              {task.next_run
+                ? `next ${timeAgo(task.next_run)}`
+                : "not scheduled"}
             </span>
 
             {task.last_run && (
@@ -212,7 +218,12 @@ export function TaskCard({
           log line, neither of which happens on a phone — and on a card that
           already shows the name it is the least useful line present.
         */}
-        <Text variant="small" color="muted" as="div" className="hidden sm:block">
+        <Text
+          variant="small"
+          color="muted"
+          as="div"
+          className="hidden sm:block"
+        >
           <code>{task.id}</code>
         </Text>
       </div>
@@ -233,9 +244,11 @@ export function TaskCard({
       <div className="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
         <Toggle
           checked={enabled}
-          // brake-ui's Toggle does not propagate the DOM handler's parameter
+          // broke-ui's Toggle does not propagate the DOM handler's parameter
           // type through its props, so annotate explicitly.
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => void handleToggle(e)}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+            void handleToggle(e)
+          }
           disabled={task.orphaned}
           label={enabled ? "Enabled" : "Disabled"}
           size="sm"

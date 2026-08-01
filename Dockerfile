@@ -24,7 +24,7 @@
 FROM --platform=$BUILDPLATFORM node:22-alpine AS client-build
 WORKDIR /build
 
-# brake-ui is a git dependency, and its lockfile entry resolves over ssh.
+# broke-ui is a git dependency, and its lockfile entry resolves over ssh.
 # `npm ci` honours `resolved` verbatim, so without this rewrite the install
 # depends on npm quietly falling back to the HTTPS tarball -- which works today
 # and is not something to build a release pipeline on.

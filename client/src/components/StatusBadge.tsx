@@ -1,4 +1,4 @@
-import { Badge } from "brake-ui";
+import { Badge } from "broke-ui";
 import type { RunStatus } from "../types/index.ts";
 import { STATUS_BADGE_VARIANT } from "../constants/index.ts";
 

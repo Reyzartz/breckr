@@ -1,9 +1,9 @@
 /*
- * theme.css pulls in Tailwind itself plus every brake-ui design token, and
+ * theme.css pulls in Tailwind itself plus every broke-ui design token, and
  * carries an @source directive so Tailwind also scans the library's bundled
  * components (it skips node_modules during automatic detection otherwise).
  */
-@import "brake-ui/theme.css";
+@import "broke-ui/theme.css";
 
 /* Tailwind resolves @source relative to this file — this covers our own JSX. */
 @source "./**/*.{js,jsx}";

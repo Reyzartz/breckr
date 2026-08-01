@@ -1,6 +1,12 @@
-import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Outlet,
+  redirect,
+  useLocation,
+  useNavigate,
+} from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Button, Text } from "brake-ui";
+import { Button, Tab, TabGroup, TabList, Text } from "broke-ui";
 import { LogOut, Moon, RefreshCw, Sun, WifiOff } from "lucide-react";
 import { useTheme } from "../hooks/useTheme.ts";
 import { useMonitorEvents } from "../hooks/useMonitorEvents.ts";
@@ -17,6 +23,8 @@ function AuthedLayout() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { authRequired, logout } = useAuth();
+  const { pathname } = useLocation();
+
   // Mounted once here rather than per-route, so navigating between routes
   // doesn't reconnect the socket -- every route's queries share this one
   // subscription.
@@ -79,7 +87,12 @@ function AuthedLayout() {
             />
             {/* No password configured means no session to end, so no button. */}
             {authRequired && (
-              <Button variant="ghost" icon={LogOut} onClick={signOut} aria-label="Sign out" />
+              <Button
+                variant="ghost"
+                icon={LogOut}
+                onClick={signOut}
+                aria-label="Sign out"
+              />
             )}
           </div>
         </div>
@@ -90,21 +103,24 @@ function AuthedLayout() {
             evenly, which makes each one a comfortably wide tap target instead
             of three small ones bunched at the left.
           */}
-          <nav className="flex w-full items-center gap-1 rounded-lg bg-background-secondary p-1 sm:w-auto sm:bg-transparent sm:p-0">
-            {NAV_LINKS.map((link) => (
-              <Link
-                key={link.to}
-                to={link.to}
-                activeOptions={{ exact: link.to === "/" }}
-                className="flex-1 rounded-md px-3 py-2 text-center text-sm whitespace-nowrap text-text-muted transition-colors hover:bg-surface-hover hover:text-text sm:flex-none sm:py-1.5"
-                activeProps={{
-                  className: "!text-text font-medium bg-surface sm:bg-surface-hover",
-                }}
-              >
-                {link.label}
-              </Link>
-            ))}
-          </nav>
+
+          <TabGroup
+            value={pathname}
+            onValueChange={(to) => navigate({ to })}
+            className="w-full sm:w-auto"
+          >
+            <TabList>
+              {NAV_LINKS.map((link) => (
+                <Tab
+                  key={link.to}
+                  value={link.to}
+                  className="w-full sm:w-auto justify-center"
+                >
+                  {link.label}
+                </Tab>
+              ))}
+            </TabList>
+          </TabGroup>
 
           <div className="hidden items-center gap-2 sm:flex">
             <ConnectionNotice connection={connection} />
@@ -177,7 +193,9 @@ function ConnectionNotice({ connection }: { connection: string }) {
  */
 export const Route = createFileRoute("/_authed")({
   beforeLoad: async ({ context, location }) => {
-    const status = await context.queryClient.ensureQueryData(authStatusQueryOptions);
+    const status = await context.queryClient.ensureQueryData(
+      authStatusQueryOptions,
+    );
     if (status.required && !status.authenticated) {
       throw redirect({ to: "/login", search: { redirect: location.href } });
     }

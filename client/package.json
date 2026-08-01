@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "//overrides": "brake-ui depends on react-popper@2, whose peer range stops at React 18, so npm installs a second nested React alongside ours. Two React copies in one tree throw 'Invalid hook call' as soon as a component from the wrong copy uses hooks. react-popper itself works fine on 19 -- its metadata is just stale -- so pin every react to one version.",
+  "//overrides": "broke-ui depends on react-popper@2, whose peer range stops at React 18, so npm installs a second nested React alongside ours. Two React copies in one tree throw 'Invalid hook call' as soon as a component from the wrong copy uses hooks. react-popper itself works fine on 19 -- its metadata is just stale -- so pin every react to one version.",
   "overrides": {
     "react": "$react",
     "react-dom": "$react-dom"
@@ -19,7 +19,7 @@
     "@tanstack/react-query": "^5.101.4",
     "@tanstack/react-router": "^1.170.18",
     "axios": "^1.19.0",
-    "brake-ui": "github:Reyzartz/broke-ui#v0.1.0",
+    "broke-ui": "github:Reyzartz/broke-ui#v0.1.1",
     "lucide-react": "^1.27.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

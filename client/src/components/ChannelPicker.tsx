@@ -1,4 +1,4 @@
-import { Button, Text } from "brake-ui";
+import { Button, Text } from "broke-ui";
 import type { Channel } from "../types/index.ts";
 import { CHANNEL_TYPE_LABEL } from "../constants/index.ts";
 
@@ -30,7 +30,7 @@ export function ChannelPicker({
     onChange(
       value.includes(id)
         ? value.filter((selected) => selected !== id)
-        : [...value, id]
+        : [...value, id],
     );
   };
 

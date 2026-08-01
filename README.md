@@ -63,36 +63,36 @@ in the first place.
 
 Go backend, TypeScript dashboard:
 
-| | |
-|---|---|
+|           |                                                                                      |
+| --------- | ------------------------------------------------------------------------------------ |
 | `server/` | Go. Scheduler + API + the browser driver. `main.go` → `internal/{app,routes,api,…}`. |
-| `client/` | React + Vite on `brake-ui`, routed with TanStack Router and TanStack Query on axios. |
+| `client/` | React + Vite on `broke-ui`, routed with TanStack Router and TanStack Query on axios. |
 
 Inside `server/internal`:
 
-| | |
-|---|---|
-| `api`, `routes`, `middleware` | HTTP: chi router, handlers, request logging |
-| `app` | wiring and the boot/shutdown sequence |
-| `store`, `migrations` | SQLite via `database/sql`, schema through goose |
-| `executor` | spec validation, the schedule ⇄ cron mapping, extraction and the operator table |
-| `scheduler` | the live cron registry |
-| `runner` | the edge-trigger state machine |
-| `browser` | the CDP connection and the one mutex every run passes through |
-| `notifier` | a transport per channel kind, and the dispatcher that fans an alert out to all of a task's channels |
-| `crypto` | AES-GCM at rest for channel credentials |
-| `types` | the HTTP contract, mirrored by `client/src/types` |
+|                               |                                                                                                     |
+| ----------------------------- | --------------------------------------------------------------------------------------------------- |
+| `api`, `routes`, `middleware` | HTTP: chi router, handlers, request logging                                                         |
+| `app`                         | wiring and the boot/shutdown sequence                                                               |
+| `store`, `migrations`         | SQLite via `database/sql`, schema through goose                                                     |
+| `executor`                    | spec validation, the schedule ⇄ cron mapping, extraction and the operator table                     |
+| `scheduler`                   | the live cron registry                                                                              |
+| `runner`                      | the edge-trigger state machine                                                                      |
+| `browser`                     | the CDP connection and the one mutex every run passes through                                       |
+| `notifier`                    | a transport per channel kind, and the dispatcher that fans an alert out to all of a task's channels |
+| `crypto`                      | AES-GCM at rest for channel credentials                                                             |
+| `types`                       | the HTTP contract, mirrored by `client/src/types`                                                   |
 
 Inside `client/src`:
 
-| | |
-|---|---|
-| `routes` | one file per page — `/` (dashboard), `/runs` (history), `/channels` — nested under a pathless `_authed` layout that holds the header/nav and the guard described in [Authentication](#authentication); `/login` sits outside it. `@tanstack/router-plugin` generates `routeTree.gen.ts` from this folder; it's gitignored, not checked in. |
-| `hooks` | one `use<Resource>` per resource (`useTasks`, `useRuns`, `useHealth`, `useChannels`, `useAuth`), each a thin TanStack Query wrapper: the query plus every mutation on it. `useMonitorEvents`, mounted once in `_authed.tsx`, is what keeps them fresh — no query polls on its own timer; the server pushes a "these resources changed" signal over `/api/events` and this invalidates exactly the query keys it names. Components stay presentational. |
-| `services/api` | one axios-backed `<Resource>Service` class per resource, all extending `ApiClient` in `base.ts`, which unwraps the `{ data }` envelope and turns a failure into an `ApiError` carrying the server's `field`. |
-| `components` | presentational, prop-driven; unchanged in shape by the router migration. |
-| `constants/queryKeys.ts` | one array root per resource — `[...QueryKeys.runs, filters]` is how a hook narrows to its own cache entry without a naming collision. |
-| `types` | see [The contract on two sides](#the-contract-on-two-sides). |
+|                          |                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `routes`                 | one file per page — `/` (dashboard), `/runs` (history), `/channels` — nested under a pathless `_authed` layout that holds the header/nav and the guard described in [Authentication](#authentication); `/login` sits outside it. `@tanstack/router-plugin` generates `routeTree.gen.ts` from this folder; it's gitignored, not checked in.                                                                                                             |
+| `hooks`                  | one `use<Resource>` per resource (`useTasks`, `useRuns`, `useHealth`, `useChannels`, `useAuth`), each a thin TanStack Query wrapper: the query plus every mutation on it. `useMonitorEvents`, mounted once in `_authed.tsx`, is what keeps them fresh — no query polls on its own timer; the server pushes a "these resources changed" signal over `/api/events` and this invalidates exactly the query keys it names. Components stay presentational. |
+| `services/api`           | one axios-backed `<Resource>Service` class per resource, all extending `ApiClient` in `base.ts`, which unwraps the `{ data }` envelope and turns a failure into an `ApiError` carrying the server's `field`.                                                                                                                                                                                                                                           |
+| `components`             | presentational, prop-driven; unchanged in shape by the router migration.                                                                                                                                                                                                                                                                                                                                                                               |
+| `constants/queryKeys.ts` | one array root per resource — `[...QueryKeys.runs, filters]` is how a hook narrows to its own cache entry without a naming collision.                                                                                                                                                                                                                                                                                                                  |
+| `types`                  | see [The contract on two sides](#the-contract-on-two-sides).                                                                                                                                                                                                                                                                                                                                                                                           |
 
 ## Setup
 
@@ -120,11 +120,11 @@ make start-client
 
 ## Pages
 
-| Route | |
-|---|---|
-| `/` | Tasks, the warnings that matter before you wait on an alert (browser down, nothing configured to notify, a task with no channels), and the last few runs |
-| `/runs` | The full run history — filters and paging are URL search params (`?taskId=…&status=…&offset=…`), so a filtered view is a link you can send someone, not state that resets on reload |
-| `/channels` | Create, edit, mute, delete and test delivery destinations |
+| Route       |                                                                                                                                                                                     |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`         | Tasks, the warnings that matter before you wait on an alert (browser down, nothing configured to notify, a task with no channels), and the last few runs                            |
+| `/runs`     | The full run history — filters and paging are URL search params (`?taskId=…&status=…&offset=…`), so a filtered view is a link you can send someone, not state that resets on reload |
+| `/channels` | Create, edit, mute, delete and test delivery destinations                                                                                                                           |
 
 Creating and editing a task stays a modal reachable from `/` rather than its own
 route: a spec is complex enough that a full-page context switch would lose the
@@ -134,12 +134,12 @@ task list you're authoring it against.
 
 Press **Add task** in the dashboard. A task answers four questions:
 
-| | |
-|---|---|
-| **Where** | a `http`/`https` URL |
-| **What** | one or more conditions, each a CSS selector plus `text`, `number`, `attribute`, `count` (how many match) or `exists` |
-| **When to alert** | per condition, an operator and a value — `is less than 100`, `contains "in stock"`, `changed since the last run` |
-| **What to say** | an optional message template |
+|                   |                                                                                                                      |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **Where**         | a `http`/`https` URL                                                                                                 |
+| **What**          | one or more conditions, each a CSS selector plus `text`, `number`, `attribute`, `count` (how many match) or `exists` |
+| **When to alert** | per condition, an operator and a value — `is less than 100`, `contains "in stock"`, `changed since the last run`     |
+| **What to say**   | an optional message template                                                                                         |
 
 Only the operators that make sense for the chosen extraction are offered, and
 the server rejects an invalid pairing on save rather than letting it become a
@@ -195,21 +195,21 @@ You are alerted once when the condition flips false → true, and not again unti
 it goes back to false. Prefer a plain state test (`price is less than 100`) —
 the framework handles the transition. State is persisted, so restarting does not
 re-alert. Editing a task's definition re-arms it, since the stored state
-described the *old* condition.
+described the _old_ condition.
 
 Each task chooses this with **Alert me**, saved as `notify_mode`:
 
-| mode | behaviour |
-| --- | --- |
+| mode         | behaviour                                                               |
+| ------------ | ----------------------------------------------------------------------- |
 | `transition` | once on the false → true edge, then quiet until it clears (**default**) |
-| `always` | on every scheduled run where the condition is true |
+| `always`     | on every scheduled run where the condition is true                      |
 
 Pick `always` for a task where each matching run is its own event; leave it alone
 otherwise, since a repeating alert is the fastest way to stop reading them.
 
 The mode is stored on the task rather than in its spec, so it survives an edit to
 the condition, and a `PATCH` carrying only `notify_mode` changes when the task
-alerts without touching *whether* it currently matches. Saving from the dashboard
+alerts without touching _whether_ it currently matches. Saving from the dashboard
 submits the whole spec, so it re-arms the trigger like any other definition edit.
 
 `changed` is the exception that still composes correctly: the run after a change
@@ -223,7 +223,7 @@ worked, and duplicate alerts erode trust faster than a missing one. The failures
 are still recorded per channel and shown on the run, so a permanently broken
 channel is visible rather than merely retried.
 
-If *every* channel fails, the alert is still owed: the trigger stays disarmed and
+If _every_ channel fails, the alert is still owed: the trigger stays disarmed and
 the next run retries it. If a task has no channels at all, messages are logged and
 dedup behaves exactly as it would in production. Both hold in either mode.
 
@@ -289,7 +289,7 @@ drops the cookie, and every request after that 401s with nothing on screen to
 explain why. Set it to `true` once you are behind TLS.
 
 What stays reachable without a session: the dashboard's own HTML/JS/CSS (the
-login page *is* this app, so it has to load before anyone can sign in), and
+login page _is_ this app, so it has to load before anyone can sign in), and
 `GET /api/health`, because Docker's `HEALTHCHECK` cannot authenticate — an
 anonymous caller gets `{"ok": true}` and nothing else, since the full response
 names the browser endpoint and version and counts tasks and channels.
@@ -302,21 +302,21 @@ same-origin handshake on its own.
 A task can exist with no usable spec — a row written by an older version, or one
 whose stored JSON was corrupted. It keeps its run history and is shown as **no
 definition**, but cannot be run or edited; only deleted. Such a row is logged at
-boot and skipped, deliberately *not* failing the boot: refusing to start would
+boot and skipped, deliberately _not_ failing the boot: refusing to start would
 lock you out of the only UI that can clean it up.
 
 ## Browsers
 
 All three speak CDP, so switching is one line in `.env` — no code changes.
 
-| | Lightpanda (default) | Chrome (fallback) | Bundled (`:standalone` image) |
-|---|---|---|---|
-| Start | `docker compose up -d lightpanda` | `docker compose --profile chrome up -d chrome` | nothing — it's inside the image |
-| `BROWSER_WS_ENDPOINT` | `ws://127.0.0.1:9222` | `http://127.0.0.1:9223` | set for you |
-| Image size | this app stays ~50MB | this app stays ~50MB | ~600MB, Chromium included |
-| Speed / memory | very fast, light | heavier | heavier |
-| Screenshots, PDF, WebGL | no — it never renders | yes | yes |
-| Web API coverage | partial (Beta) | complete | complete |
+|                         | Lightpanda (default)              | Chrome (fallback)                              | Bundled (`:standalone` image)   |
+| ----------------------- | --------------------------------- | ---------------------------------------------- | ------------------------------- |
+| Start                   | `docker compose up -d lightpanda` | `docker compose --profile chrome up -d chrome` | nothing — it's inside the image |
+| `BROWSER_WS_ENDPOINT`   | `ws://127.0.0.1:9222`             | `http://127.0.0.1:9223`                        | set for you                     |
+| Image size              | this app stays ~50MB              | this app stays ~50MB                           | ~600MB, Chromium included       |
+| Speed / memory          | very fast, light                  | heavier                                        | heavier                         |
+| Screenshots, PDF, WebGL | no — it never renders             | yes                                            | yes                             |
+| Web API coverage        | partial (Beta)                    | complete                                       | complete                        |
 
 The first two are what `docker-compose.yml` runs — start the browser separately
 from the app, same as local development (`make start-server` on the host).
@@ -341,10 +341,10 @@ coverage failure** — switch engines and re-run.
 Two tags under [`reyzartz/breckr`](https://hub.docker.com/r/reyzartz/breckr),
 both `linux/amd64` and `linux/arm64`:
 
-| tag | contains | size | use with |
-|---|---|---|---|
-| `latest` | just the app | ~50MB | `docker-compose.yml` / `deploy/compose.yaml`, or your own browser |
-| `standalone` | the app + headless Chromium | ~600MB | a single `docker run`, no companion container |
+| tag          | contains                    | size   | use with                                                          |
+| ------------ | --------------------------- | ------ | ----------------------------------------------------------------- |
+| `latest`     | just the app                | ~50MB  | `docker-compose.yml` / `deploy/compose.yaml`, or your own browser |
+| `standalone` | the app + headless Chromium | ~600MB | a single `docker run`, no companion container                     |
 
 Versioned tags follow semver from the git tag: `v1.2.3` publishes `1.2.3`,
 `1.2`, `1` and `latest`, and `1.2.3-standalone` … `standalone` alongside them.
@@ -412,7 +412,7 @@ git pull && docker compose up -d --build
 
 Logs: `docker compose logs -f app`. The SQLite database lives in `./data`,
 bind-mounted into the container, so it survives `docker compose down` and
-image rebuilds — back up `monitor.db` *and* `secret.key` together, since the
+image rebuilds — back up `monitor.db` _and_ `secret.key` together, since the
 database cannot be read without the key.
 
 By default every container in this repo's compose files runs as root, same as
@@ -462,26 +462,26 @@ Relative `DB_PATH` and `CLIENT_DIST` resolve against the directory holding the
 
 ## API
 
-| Route | |
-|---|---|
-| `POST /api/auth/login` | `{ password }` → sets the session cookie. No session needed to call it. |
-| `POST /api/auth/logout` | clears the session cookie. No session needed to call it. |
-| `GET /api/auth/status` | `{ required, authenticated }` — whether this server asks for a password, and whether you have one |
-| `GET /api/health` | liveness always; the rest — whether the browser is reachable, task/channel counts — only with a session, or when `AUTH_PASSWORD` is unset |
-| `GET /api/tasks` | tasks with last run and next run time |
-| `POST /api/tasks` | create; schedules it immediately |
-| `PATCH /api/tasks/:id` | any of `{ enabled, name, schedule \| cron_expr, spec, notify_mode, channel_ids }` |
-| `DELETE /api/tasks/:id` | delete; run history cascades with it |
-| `POST /api/tasks/test` | run a draft spec once — no run row, no notification |
-| `GET /api/runs` | `task_id`, `status`, `limit` (max 200), `offset` |
-| `GET /api/runs/:id` | full result / error, plus the per-channel `attempts` |
-| `POST /api/tasks/:id/run-now` | trigger immediately (works while disabled) |
-| `GET /api/channels` | channels with their secrets masked |
-| `POST /api/channels` | create `{ name, type, config, enabled? }` |
-| `PATCH /api/channels/:id` | any of `{ name, config, enabled }`; omitted secrets are kept |
-| `DELETE /api/channels/:id` | delete; task links cascade, history is kept |
-| `POST /api/channels/test` | send a test through an unsaved `{ type, config }` |
-| `POST /api/channels/:id/test` | send a test through a saved channel |
+| Route                         |                                                                                                                                           |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/auth/login`        | `{ password }` → sets the session cookie. No session needed to call it.                                                                   |
+| `POST /api/auth/logout`       | clears the session cookie. No session needed to call it.                                                                                  |
+| `GET /api/auth/status`        | `{ required, authenticated }` — whether this server asks for a password, and whether you have one                                         |
+| `GET /api/health`             | liveness always; the rest — whether the browser is reachable, task/channel counts — only with a session, or when `AUTH_PASSWORD` is unset |
+| `GET /api/tasks`              | tasks with last run and next run time                                                                                                     |
+| `POST /api/tasks`             | create; schedules it immediately                                                                                                          |
+| `PATCH /api/tasks/:id`        | any of `{ enabled, name, schedule \| cron_expr, spec, notify_mode, channel_ids }`                                                         |
+| `DELETE /api/tasks/:id`       | delete; run history cascades with it                                                                                                      |
+| `POST /api/tasks/test`        | run a draft spec once — no run row, no notification                                                                                       |
+| `GET /api/runs`               | `task_id`, `status`, `limit` (max 200), `offset`                                                                                          |
+| `GET /api/runs/:id`           | full result / error, plus the per-channel `attempts`                                                                                      |
+| `POST /api/tasks/:id/run-now` | trigger immediately (works while disabled)                                                                                                |
+| `GET /api/channels`           | channels with their secrets masked                                                                                                        |
+| `POST /api/channels`          | create `{ name, type, config, enabled? }`                                                                                                 |
+| `PATCH /api/channels/:id`     | any of `{ name, config, enabled }`; omitted secrets are kept                                                                              |
+| `DELETE /api/channels/:id`    | delete; task links cascade, history is kept                                                                                               |
+| `POST /api/channels/test`     | send a test through an unsaved `{ type, config }`                                                                                         |
+| `POST /api/channels/:id/test` | send a test through a saved channel                                                                                                       |
 
 Every successful response is `{ "data": … }`. Failures are `{ "error": … }` at
 the top level, with a `field` naming the control that was wrong when a spec
@@ -519,7 +519,7 @@ Each test gets its own SQLite file under `t.TempDir()`, so nothing touches
 - Runs are serialized: Lightpanda's CDP server accepts one connection, one
   context and one page at a time. `SkipIfStillRunning` stops a task overlapping
   itself; an in-process mutex stops different tasks colliding.
-- A run row is written *before* execution, so a crash stays visible instead of
+- A run row is written _before_ execution, so a crash stays visible instead of
   vanishing. Rows left `running` are marked failed at the next boot.
 - Runs older than `RUN_RETENTION_DAYS` are pruned at boot and daily at 04:00.
 - `GET /api/runs` returns `condition_met` and `notified` as real booleans; the

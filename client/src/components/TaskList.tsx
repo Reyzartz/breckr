@@ -1,4 +1,4 @@
-import { Button, Card, Text } from "brake-ui";
+import { Button, Card, Text } from "broke-ui";
 import { Plus } from "lucide-react";
 import type { TaskWithStatus } from "../types/index.ts";
 import { TaskCard } from "./TaskCard.tsx";
@@ -27,9 +27,9 @@ export function TaskList({
       <Card>
         <div className="flex flex-col items-start gap-3">
           <Text color="muted">
-            No tasks yet. A task watches one thing on one page — a price, a stock
-            label, whether an element appears — and alerts you when it changes or
-            crosses a threshold.
+            No tasks yet. A task watches one thing on one page — a price, a
+            stock label, whether an element appears — and alerts you when it
+            changes or crosses a threshold.
           </Text>
           <Button icon={Plus} onClick={onCreate}>
             Add your first task

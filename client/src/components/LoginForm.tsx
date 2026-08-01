@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Button, Card, Input, Text } from "brake-ui";
+import { Button, Card, Input, Text } from "broke-ui";
 import { Lock } from "lucide-react";
 
 interface LoginFormProps {

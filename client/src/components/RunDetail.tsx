@@ -6,7 +6,7 @@ import {
   ModalFooter,
   ModalHeader,
   Text,
-} from "brake-ui";
+} from "broke-ui";
 import type { Run } from "../types/index.ts";
 import { useRun } from "../hooks/useRuns.ts";
 import { StatusBadge } from "./StatusBadge.tsx";
@@ -42,7 +42,9 @@ export function RunDetail({ run, onClose }: RunDetailProps) {
 
   return (
     <Modal isOpen onClose={onClose} maxWidth="lg">
-      <ModalHeader title={`Run #${String(run.id)} — ${run.task_name ?? run.task_id}`} />
+      <ModalHeader
+        title={`Run #${String(run.id)} — ${run.task_name ?? run.task_id}`}
+      />
 
       <ModalBody>
         <div className="flex flex-wrap items-center gap-2">
@@ -141,7 +143,12 @@ export function RunDetail({ run, onClose }: RunDetailProps) {
       </ModalBody>
 
       <ModalFooter>
-        <Button variant="outlined" onClick={onClose} fullWidth className="sm:w-auto">
+        <Button
+          variant="outlined"
+          onClick={onClose}
+          fullWidth
+          className="sm:w-auto"
+        >
           Close
         </Button>
       </ModalFooter>
@@ -166,7 +173,13 @@ function Field({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="mt-4">
       <Text variant="caption" color="muted">

@@ -11,9 +11,20 @@ import {
   Select,
   Text,
   Toggle,
-} from "brake-ui";
-import { ArrowLeft, Bell, FlaskConical, Plus, SquarePen, Trash2 } from "lucide-react";
-import type { Channel, ChannelType, TestNotificationResponse } from "../types/index.ts";
+} from "broke-ui";
+import {
+  ArrowLeft,
+  Bell,
+  FlaskConical,
+  Plus,
+  SquarePen,
+  Trash2,
+} from "lucide-react";
+import type {
+  Channel,
+  ChannelType,
+  TestNotificationResponse,
+} from "../types/index.ts";
 import { useChannels } from "../hooks/useChannels.ts";
 import { ApiError, toErrorMessage } from "../services/api/index.ts";
 import {
@@ -34,7 +45,10 @@ type ConfigDraft = Record<string, string>;
  * it shows a credential is set, and the server treats a still-masked field as
  * "keep what is stored".
  */
-function toConfigDraft(type: ChannelType, config: Record<string, unknown>): ConfigDraft {
+function toConfigDraft(
+  type: ChannelType,
+  config: Record<string, unknown>,
+): ConfigDraft {
   const draft: ConfigDraft = {};
 
   for (const field of CHANNEL_FIELDS[type]) {
@@ -56,7 +70,10 @@ function toConfigDraft(type: ChannelType, config: Record<string, unknown>): Conf
  * former would overwrite a working credential with a row of dots, and the latter
  * would override a server-side default with "".
  */
-function toConfig(type: ChannelType, draft: ConfigDraft): Record<string, unknown> {
+function toConfig(
+  type: ChannelType,
+  draft: ConfigDraft,
+): Record<string, unknown> {
   const config: Record<string, unknown> = {};
 
   for (const field of CHANNEL_FIELDS[type]) {
@@ -115,7 +132,7 @@ export function ChannelsPage() {
   const [testingDraft, setTestingDraft] = useState(false);
   /** Outcome of testing the *unsaved* form, kept separate from the list's test. */
   const [draftTest, setDraftTest] = useState<TestNotificationResponse | null>(
-    null
+    null,
   );
 
   const openEditor = (target: Channel | "new") => {
@@ -148,7 +165,7 @@ export function ChannelsPage() {
   const setField = (field: string, value: string) => {
     setDraft((current) => ({ ...current, [field]: value }));
     setFieldError((current) =>
-      current?.field === `config.${field}` ? null : current
+      current?.field === `config.${field}` ? null : current,
     );
   };
 
@@ -206,7 +223,9 @@ export function ChannelsPage() {
     dismissTestResult();
 
     try {
-      setDraftTest(await testDraftChannel({ type, config: toConfig(type, draft) }));
+      setDraftTest(
+        await testDraftChannel({ type, config: toConfig(type, draft) }),
+      );
     } catch (err) {
       handleError(err);
     } finally {
@@ -318,7 +337,9 @@ export function ChannelsPage() {
                             testChannel(channel.id);
                           }}
                         >
-                          {channelBeingTested === channel.id ? "Sending…" : "Test"}
+                          {channelBeingTested === channel.id
+                            ? "Sending…"
+                            : "Test"}
                         </Button>
                         <Button
                           size="sm"
@@ -370,7 +391,7 @@ export function ChannelsPage() {
                   onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
                     setName(event.target.value);
                     setFieldError((current) =>
-                      current?.field === "name" ? null : current
+                      current?.field === "name" ? null : current,
                     );
                   }}
                   error={errorFor("name")}
@@ -418,8 +439,8 @@ export function ChannelsPage() {
                   }}
                 />
                 <Text variant="caption" color="muted">
-                  A muted channel stays attached to its tasks but is skipped when
-                  alerting.
+                  A muted channel stays attached to its tasks but is skipped
+                  when alerting.
                 </Text>
               </div>
 
