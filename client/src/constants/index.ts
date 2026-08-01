@@ -25,17 +25,24 @@ export const PAGE_SIZE = 25;
  * `server/internal/types` stays the authority, this copy just stops the form
  * offering a pairing the server would reject.
  */
-export const RUN_STATUSES: readonly RunStatus[] = ["success", "failed", "running"];
+export const RUN_STATUSES: readonly RunStatus[] = [
+  "success",
+  "failed",
+  "running",
+];
 
-/** brake-ui Badge variants, keyed by run status. */
-export const STATUS_BADGE_VARIANT: Record<RunStatus, "success" | "error" | "info"> = {
+/** broke-ui Badge variants, keyed by run status. */
+export const STATUS_BADGE_VARIANT: Record<
+  RunStatus,
+  "success" | "error" | "info"
+> = {
   success: "success",
   failed: "error",
   running: "info",
 };
 
 /**
- * brake-ui Badge variants, keyed by notification outcome.
+ * broke-ui Badge variants, keyed by notification outcome.
  *
  * `error` is red and `disabled` is neutral on purpose: an alert the transport
  * rejected is a fault to fix, while an alert nothing was configured to send is
@@ -196,19 +203,23 @@ export const MASK_PREFIX = "••••";
  * against `ExtractKind`, so adding a kind to the shared contract breaks
  * whichever side has not been updated.
  */
-export const EXTRACT_OPTIONS: readonly { value: ExtractKind; label: string }[] = [
-  { value: "text", label: "Text of the element" },
-  { value: "number", label: "Number in the text" },
-  { value: "attribute", label: "An attribute" },
-  { value: "count", label: "How many match" },
-  { value: "exists", label: "Whether it exists" },
-];
+export const EXTRACT_OPTIONS: readonly { value: ExtractKind; label: string }[] =
+  [
+    { value: "text", label: "Text of the element" },
+    { value: "number", label: "Number in the text" },
+    { value: "attribute", label: "An attribute" },
+    { value: "count", label: "How many match" },
+    { value: "exists", label: "Whether it exists" },
+  ];
 
 /** What every task did before the mode existed, and what the server defaults to. */
 export const DEFAULT_NOTIFY_MODE: NotifyMode = "transition";
 
 /** The alert modes the form offers, in the order they appear. */
-export const NOTIFY_MODE_OPTIONS: readonly { value: NotifyMode; label: string }[] = [
+export const NOTIFY_MODE_OPTIONS: readonly {
+  value: NotifyMode;
+  label: string;
+}[] = [
   { value: "transition", label: "Once, when it starts matching" },
   { value: "always", label: "Every time it matches" },
 ];
@@ -245,7 +256,10 @@ export const OPERATOR_LABELS: Record<CompareOperator, string> = {
  * server, which is the authority — this only keeps the user from picking a
  * pairing that would be rejected on save.
  */
-export const OPERATORS_BY_KIND: Record<ExtractKind, readonly CompareOperator[]> = {
+export const OPERATORS_BY_KIND: Record<
+  ExtractKind,
+  readonly CompareOperator[]
+> = {
   text: ["eq", "neq", "contains", "not_contains", "changed"],
   number: ["lt", "lte", "gt", "gte", "eq", "neq", "changed"],
   attribute: ["eq", "neq", "contains", "not_contains", "changed"],
@@ -272,15 +286,17 @@ export const DEFAULT_SCHEDULE: Schedule = { every: "minutes", interval: 15 };
  * for any stored expression the other five cannot express, and editing such a
  * task has to leave its cron alone.
  */
-export const FREQUENCY_OPTIONS: readonly { value: ScheduleFrequency; label: string }[] =
-  [
-    { value: "minutes", label: "Every few minutes" },
-    { value: "hours", label: "Every few hours" },
-    { value: "day", label: "Every day" },
-    { value: "week", label: "Every week" },
-    { value: "month", label: "Every month" },
-    { value: "custom", label: "Custom cron" },
-  ];
+export const FREQUENCY_OPTIONS: readonly {
+  value: ScheduleFrequency;
+  label: string;
+}[] = [
+  { value: "minutes", label: "Every few minutes" },
+  { value: "hours", label: "Every few hours" },
+  { value: "day", label: "Every day" },
+  { value: "week", label: "Every week" },
+  { value: "month", label: "Every month" },
+  { value: "custom", label: "Custom cron" },
+];
 
 /** Indexed by cron's day numbering, Sunday first. */
 export const WEEKDAY_LABELS: readonly string[] = [
@@ -305,7 +321,10 @@ export const MAX_INTERVAL: Record<"minutes" | "hours", number> = {
  * `all` is first because it is the default and the one a single-condition task
  * silently uses.
  */
-export const MATCH_MODE_OPTIONS: readonly { value: MatchMode; label: string }[] = [
+export const MATCH_MODE_OPTIONS: readonly {
+  value: MatchMode;
+  label: string;
+}[] = [
   { value: "all", label: "all of these are true" },
   { value: "any", label: "any of these is true" },
 ];
@@ -331,6 +350,6 @@ export const DEFAULT_SPEC: TaskSpec = {
 export const THEMES = ["light", "dark"] as const;
 export type Theme = (typeof THEMES)[number];
 
-/** brake-ui switches theme off this attribute on any ancestor. */
+/** broke-ui switches theme off this attribute on any ancestor. */
 export const THEME_ATTRIBUTE = "data-theme";
 export const THEME_STORAGE_KEY = "breckr-theme";

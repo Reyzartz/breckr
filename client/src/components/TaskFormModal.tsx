@@ -10,7 +10,7 @@ import {
   Select,
   Text,
   Textarea,
-} from "brake-ui";
+} from "broke-ui";
 import { FlaskConical, Plus, SquarePen } from "lucide-react";
 import type {
   Channel,
@@ -67,7 +67,7 @@ interface TaskFormModalProps {
       spec: TaskSpec;
       notify_mode: NotifyMode;
       channel_ids: string[];
-    }
+    },
   ) => Promise<void>;
   /** Opens the channel manager from inside the form. */
   onManageChannels: () => void;
@@ -234,11 +234,12 @@ export function TaskFormModal({
   // Held outside FormState, which is flat and string-typed so `bind` can drive
   // it — the same reason `weekdays` lives in the schedule builder.
   const [channelIds, setChannelIds] = useState<string[]>(
-    () => task?.channel_ids ?? []
+    () => task?.channel_ids ?? [],
   );
-  const [fieldError, setFieldError] = useState<{ field: string; message: string } | null>(
-    null
-  );
+  const [fieldError, setFieldError] = useState<{
+    field: string;
+    message: string;
+  } | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<TestTaskResponse | null>(null);
   const [testing, setTesting] = useState(false);
@@ -289,7 +290,7 @@ export function TaskFormModal({
   /**
    * Value, handler and error for one text field.
    *
-   * The event has to be annotated explicitly: brake-ui's controls do not
+   * The event has to be annotated explicitly: broke-ui's controls do not
    * propagate the DOM handler's parameter type through their props, so an
    * inline arrow infers `any` and fails under noImplicitAny. Binding it once
    * here beats repeating the annotation on every control.
@@ -300,7 +301,7 @@ export function TaskFormModal({
     onChange: (
       event: React.ChangeEvent<
         HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
-      >
+      >,
     ) => {
       set(key, event.target.value as FormState[K]);
     },
@@ -309,7 +310,9 @@ export function TaskFormModal({
   /** The builder owns several fields at once — switching frequency can clamp. */
   const handleScheduleChange = (patch: Partial<ScheduleFields>) => {
     setForm((current) => ({ ...current, ...patch }));
-    setFieldError((current) => (current?.field === "schedule" ? null : current));
+    setFieldError((current) =>
+      current?.field === "schedule" ? null : current,
+    );
   };
 
   const handleNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -333,11 +336,11 @@ export function TaskFormModal({
     setForm((current) => ({
       ...current,
       conditions: current.conditions.map((condition, at) =>
-        at === index ? { ...condition, ...patch } : condition
+        at === index ? { ...condition, ...patch } : condition,
       ),
     }));
     setFieldError((current) =>
-      current?.field.startsWith(`conditions[${index}]`) ? null : current
+      current?.field.startsWith(`conditions[${index}]`) ? null : current,
     );
   };
 
@@ -346,7 +349,9 @@ export function TaskFormModal({
       ...current,
       conditions: [...current.conditions, { ...BLANK_CONDITION }],
     }));
-    setFieldError((current) => (current?.field === "conditions" ? null : current));
+    setFieldError((current) =>
+      current?.field === "conditions" ? null : current,
+    );
   };
 
   /**
@@ -364,14 +369,16 @@ export function TaskFormModal({
     // Positions shift, so any complaint about a condition now points at the
     // wrong row.
     setFieldError((current) =>
-      current?.field.startsWith("conditions") ? null : current
+      current?.field.startsWith("conditions") ? null : current,
     );
   };
 
-  const handleNotifyModeChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleNotifyModeChange = (
+    event: React.ChangeEvent<HTMLSelectElement>,
+  ) => {
     set("notifyMode", event.target.value as NotifyMode);
     setFieldError((current) =>
-      current?.field === "notify_mode" ? null : current
+      current?.field === "notify_mode" ? null : current,
     );
   };
 
@@ -386,7 +393,10 @@ export function TaskFormModal({
     setFormError(null);
     try {
       setTestResult(
-        await testTask({ name: form.name || "Untitled task", spec: toSpec(form) })
+        await testTask({
+          name: form.name || "Untitled task",
+          spec: toSpec(form),
+        }),
       );
       revealResult();
     } catch (err) {
@@ -512,7 +522,9 @@ export function TaskFormModal({
                 onChange={(patch) => patchCondition(index, patch)}
                 // A task needs at least one condition, so the last one cannot go.
                 onRemove={
-                  form.conditions.length > 1 ? () => removeCondition(index) : undefined
+                  form.conditions.length > 1
+                    ? () => removeCondition(index)
+                    : undefined
                 }
                 errorFor={(field) => errorFor(conditionFieldName(index, field))}
               />
@@ -541,7 +553,7 @@ export function TaskFormModal({
             onChange={(next) => {
               setChannelIds(next);
               setFieldError((current) =>
-                current?.field === "channel_ids" ? null : current
+                current?.field === "channel_ids" ? null : current,
               );
             }}
             error={errorFor("channel_ids")}
@@ -640,7 +652,10 @@ export function TaskFormModal({
             <Button variant="ghost" onClick={onClose} disabled={saving}>
               Cancel
             </Button>
-            <Button onClick={() => void handleSubmit()} disabled={saving || testing}>
+            <Button
+              onClick={() => void handleSubmit()}
+              disabled={saving || testing}
+            >
               {saving ? "Saving…" : isEditing ? "Save changes" : "Create task"}
             </Button>
           </div>

@@ -1,8 +1,14 @@
-import { Badge, Text } from "brake-ui";
+import { Badge, Text } from "broke-ui";
 import type { Run } from "../types/index.ts";
 import { StatusBadge } from "./StatusBadge.tsx";
 import { NotificationBadge } from "./NotificationBadge.tsx";
-import { absoluteTime, duration, firstLine, summarize, timeAgo } from "../utils/format.ts";
+import {
+  absoluteTime,
+  duration,
+  firstLine,
+  summarize,
+  timeAgo,
+} from "../utils/format.ts";
 
 /**
  * The status cluster for one run.
@@ -34,7 +40,9 @@ export function RunBadges({ run }: { run: Run }) {
 
 /** What the run produced, or why it failed. */
 export function runOutcome(run: Run): string {
-  return run.status === "failed" ? firstLine(run.error) : summarize(run.result_summary);
+  return run.status === "failed"
+    ? firstLine(run.error)
+    : summarize(run.result_summary);
 }
 
 interface RunListItemProps {
@@ -54,7 +62,11 @@ interface RunListItemProps {
  * It is a real button rather than a clickable row, which also gets the run
  * detail onto the keyboard path the table never had.
  */
-export function RunListItem({ run, onSelect, detailed = false }: RunListItemProps) {
+export function RunListItem({
+  run,
+  onSelect,
+  detailed = false,
+}: RunListItemProps) {
   const outcome = runOutcome(run);
   const meta = [
     duration(run.started_at, run.finished_at),
@@ -79,7 +91,9 @@ export function RunListItem({ run, onSelect, detailed = false }: RunListItemProp
           as="span"
           className="shrink-0 whitespace-nowrap"
         >
-          <span title={absoluteTime(run.started_at)}>{timeAgo(run.started_at)}</span>
+          <span title={absoluteTime(run.started_at)}>
+            {timeAgo(run.started_at)}
+          </span>
         </Text>
       </div>
 

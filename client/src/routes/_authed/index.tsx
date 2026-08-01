@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Alert, Button, Text } from "brake-ui";
+import { Alert, Button, Text } from "broke-ui";
 import { Plus } from "lucide-react";
 import type { Run, TaskWithStatus } from "../../types/index.ts";
 import { TaskList } from "../../components/TaskList.tsx";
@@ -22,7 +22,7 @@ export const Route = createFileRoute("/_authed/")({ component: Dashboard });
  */
 function silentTasks(tasks: TaskWithStatus[]): TaskWithStatus[] {
   return tasks.filter(
-    (task) => task.enabled && !task.orphaned && task.channel_ids.length === 0
+    (task) => task.enabled && !task.orphaned && task.channel_ids.length === 0,
   );
 }
 
@@ -48,7 +48,9 @@ function Dashboard() {
   const [editing, setEditing] = useState<TaskWithStatus | "new" | null>(null);
 
   const pageError =
-    tasksError ?? channelsError ?? (healthError ? toErrorMessage(healthError) : null);
+    tasksError ??
+    channelsError ??
+    (healthError ? toErrorMessage(healthError) : null);
 
   const openChannels = () => {
     setEditing(null);
@@ -83,8 +85,8 @@ function Dashboard() {
           <Alert variant="warning">
             <span className="flex flex-wrap items-baseline gap-x-2">
               <span>
-                No notification channels — conditions will still be checked
-                and recorded, but no alert will be sent.
+                No notification channels — conditions will still be checked and
+                recorded, but no alert will be sent.
               </span>
               <button
                 type="button"

@@ -1,4 +1,4 @@
-import { Button, Input, Select, Text } from "brake-ui";
+import { Button, Input, Select, Text } from "broke-ui";
 import type { ScheduleFrequency } from "../types/index.ts";
 import {
   FREQUENCY_OPTIONS,

@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Card, Text } from "brake-ui";
+import { Card, Text } from "broke-ui";
 import { ArrowRight } from "lucide-react";
 import type { Run } from "../types/index.ts";
 import { RunBadges, RunListItem, runOutcome } from "./RunSummary.tsx";
@@ -53,7 +53,10 @@ export function RecentRuns({ onSelectRun }: RecentRunsProps) {
         ))}
       </div>
 
-      <Card size="lg" className="hidden md:block xl:min-h-0 xl:flex-1 xl:overflow-hidden">
+      <Card
+        size="lg"
+        className="hidden md:block xl:min-h-0 xl:flex-1 xl:overflow-hidden"
+      >
         <div className="h-full overflow-auto">
           <table className="w-full min-w-md border-collapse text-left text-sm">
             <thead className="sticky top-0 z-10 bg-surface">

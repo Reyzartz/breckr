@@ -1,4 +1,4 @@
-import { Badge } from "brake-ui";
+import { Badge } from "broke-ui";
 import type { Run } from "../types/index.ts";
 import {
   NOTIFICATION_BADGE_VARIANT,

@@ -1,13 +1,25 @@
-import { Button, Card, Select, Text } from "brake-ui";
+import { Button, Card, Select, Text } from "broke-ui";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import type { Run, RunStatus, RunsResponse, TaskWithStatus } from "../types/index.ts";
+import type {
+  Run,
+  RunStatus,
+  RunsResponse,
+  TaskWithStatus,
+} from "../types/index.ts";
 import { RunBadges, RunListItem, runOutcome } from "./RunSummary.tsx";
 import { PAGE_SIZE, RUN_STATUSES } from "../constants/index.ts";
 import type { RunFilters } from "../hooks/useRuns.ts";
 import { absoluteTime, duration, timeAgo } from "../utils/format.ts";
 
 /** Result carries the flexible width; the rest size to their content. */
-const COLUMNS = ["When", "Task", "Status", "Result", "Took", "Trigger"] as const;
+const COLUMNS = [
+  "When",
+  "Task",
+  "Status",
+  "Result",
+  "Took",
+  "Trigger",
+] as const;
 
 interface RunHistoryProps {
   data: RunsResponse | null;
@@ -62,7 +74,7 @@ export function RunHistory({
             size="sm"
             label="Task"
             value={filters.taskId ?? ""}
-            // brake-ui's Select does not propagate the DOM handler's parameter
+            // broke-ui's Select does not propagate the DOM handler's parameter
             // type through its props, so annotate explicitly.
             onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
               onFilterChange({ taskId: e.target.value || undefined });
@@ -113,7 +125,12 @@ export function RunHistory({
           </Card>
         ) : (
           runs.map((run) => (
-            <RunListItem key={run.id} run={run} onSelect={onSelectRun} detailed />
+            <RunListItem
+              key={run.id}
+              run={run}
+              onSelect={onSelectRun}
+              detailed
+            />
           ))
         )}
       </div>
@@ -141,7 +158,10 @@ export function RunHistory({
             <tbody>
               {runs.length === 0 && (
                 <tr>
-                  <td colSpan={COLUMNS.length} className="px-3 py-8 text-center">
+                  <td
+                    colSpan={COLUMNS.length}
+                    className="px-3 py-8 text-center"
+                  >
                     <Text color="muted">{emptyMessage}</Text>
                   </td>
                 </tr>

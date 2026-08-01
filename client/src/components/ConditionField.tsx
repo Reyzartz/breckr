@@ -1,6 +1,10 @@
-import { Button, Input, Select, Text } from "brake-ui";
+import { Button, Input, Select, Text } from "broke-ui";
 import { Trash2 } from "lucide-react";
-import type { CompareOperator, Condition, ExtractKind } from "../types/index.ts";
+import type {
+  CompareOperator,
+  Condition,
+  ExtractKind,
+} from "../types/index.ts";
 import {
   EXTRACT_OPTIONS,
   OPERATORS_BY_KIND,
@@ -53,7 +57,9 @@ export function toCondition(fields: ConditionFields): Condition {
     ...(fields.waitForSelector.trim()
       ? { waitForSelector: fields.waitForSelector.trim() }
       : {}),
-    ...(fields.extract === "attribute" ? { attribute: fields.attribute.trim() } : {}),
+    ...(fields.extract === "attribute"
+      ? { attribute: fields.attribute.trim() }
+      : {}),
     ...(VALUELESS_OPERATORS.includes(fields.operator)
       ? {}
       : { value: fields.value.trim() }),
@@ -67,7 +73,10 @@ export function toCondition(fields: ConditionFields): Condition {
  * row rather than on the first — which is the one row you can be sure is fine,
  * since validation stops at the first failure.
  */
-export function conditionFieldName(index: number, field: keyof ConditionFields): string {
+export function conditionFieldName(
+  index: number,
+  field: keyof ConditionFields,
+): string {
   return `conditions[${index}].${field}`;
 }
 
@@ -118,7 +127,7 @@ export function ConditionField({
     onChange: (
       event: React.ChangeEvent<
         HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement
-      >
+      >,
     ) => {
       onChange({ [key]: event.target.value } as Partial<ConditionFields>);
     },
@@ -144,7 +153,12 @@ export function ConditionField({
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Input label="CSS selector" {...bind("selector")} placeholder=".price" fullWidth />
+        <Input
+          label="CSS selector"
+          {...bind("selector")}
+          placeholder=".price"
+          fullWidth
+        />
         <Input
           label="Wait for selector (optional)"
           {...bind("waitForSelector")}

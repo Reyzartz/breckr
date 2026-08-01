@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # brake-ui's lockfile entry resolves over ssh (see the Dockerfile).
+      # broke-ui's lockfile entry resolves over ssh (see the Dockerfile).
       # Actions' runners usually rewrite this for github.com automatically, but
       # the rewrite is made explicit so the step does not depend on that.
       - run: git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"

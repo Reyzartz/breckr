@@ -33,7 +33,7 @@
     "resolveJsonModule": true,
 
     // vite/client declares the CSS module shape, without which importing
-    // "brake-ui/theme.css" is a type error.
+    // "broke-ui/theme.css" is a type error.
     "types": ["vite/client"]
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]
